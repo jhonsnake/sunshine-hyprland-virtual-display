@@ -1,55 +1,56 @@
-# Sunshine + Hyprland — Remote Desktop con Display Virtual
+# Sunshine + Hyprland — Remote Desktop with Virtual Display
 
-Configuración para acceso remoto en **Hyprland (Wayland)** usando [Sunshine](https://github.com/LizardByte/Sunshine) como servidor y [Moonlight](https://moonlight-stream.org/) / **Artemis** como cliente.
+Remote access setup for **Hyprland (Wayland)** using [Sunshine](https://github.com/LizardByte/Sunshine) as the server and [Moonlight](https://moonlight-stream.org/) / **Artemis** as the client.
 
-Replica el comportamiento de **Apollo** en Linux: crea un display virtual headless que se convierte en la sesión remota, separado de tu monitor físico.
+Replicates **Apollo**-style virtual display behavior on Linux: creates a headless virtual monitor that becomes the remote session, completely separate from your physical display.
 
 ---
 
-## Cuándo usar esto
+## When to use this
 
-| Situación | ¿Funciona? |
+| Scenario | Works? |
 |---|---|
-| Hyprland como compositor (Wayland) | ✅ |
-| GPU NVIDIA con driver propietario | ✅ (encoding nvenc — H.264/HEVC/AV1) |
-| GPU AMD/Intel | ✅ (cambia `encoder=nvenc` por `encoder=vaapi`) |
-| Quieres que las ventanas aparezcan en el cliente, no en el monitor físico | ✅ |
-| Quieres acceso remoto simultáneo sin afectar tu sesión física | ✅ |
-| X11 / otros compositors | ❌ (solo wlroots/Hyprland) |
+| Hyprland compositor (Wayland) | ✅ |
+| NVIDIA GPU with proprietary driver | ✅ (nvenc — H.264/HEVC/AV1) |
+| AMD/Intel GPU | ✅ (change `encoder=nvenc` to `encoder=vaapi`) |
+| Windows open on the remote client, not the physical monitor | ✅ |
+| Physical monitor turns off during remote session | ✅ |
+| Simultaneous remote access without disturbing your physical session | ✅ |
+| X11 / other compositors | ❌ (wlroots/Hyprland only) |
 
 ---
 
-## Cómo funciona
+## How it works
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Hyprland                                           │
-│                                                     │
-│  DP-1 (monitor físico)    HEADLESS-N (virtual)      │
-│  ┌─────────────────┐      ┌─────────────────┐       │
-│  │  idle / vacío   │      │  tus workspaces │ ◄─── Sunshine captura esto
-│  └─────────────────┘      └─────────────────┘       │
-└─────────────────────────────────────────────────────┘
-         │
-         ▼ stream (nvenc/vaapi)
-  Moonlight / Artemis (Android, iOS, Windows, TV)
+┌───────────────────────────────────────────────────────┐
+│  Hyprland                                             │
+│                                                       │
+│  DP-1 (physical monitor)    HEADLESS-N (virtual)      │
+│  ┌──────────────────┐       ┌──────────────────┐      │
+│  │  off / idle      │       │  your workspaces │ ◄─── Sunshine captures this
+│  └──────────────────┘       └──────────────────┘      │
+└───────────────────────────────────────────────────────┘
+          │
+          ▼ stream (nvenc/vaapi)
+   Moonlight / Artemis (Android, iOS, Windows, TV)
 ```
 
-- Al **conectar**: los workspaces migran de DP-1 → HEADLESS automáticamente
-- Al **desconectar**: regresan a DP-1
+- On **connect**: workspaces migrate DP-1 → HEADLESS, physical monitor turns off
+- On **disconnect**: workspaces return to DP-1, physical monitor turns back on
 
 ---
 
-## Requisitos
+## Requirements
 
-- Hyprland (cualquier versión reciente)
-- `python3` (para detectar el nombre dinámico del headless)
-- `paru` o `yay` (para instalar desde AUR)
-- GPU NVIDIA o AMD/Intel con soporte de encoding por hardware
+- Hyprland (any recent version)
+- `python3` (used to detect the dynamic headless monitor name)
+- `paru` or `yay` (to install from AUR)
+- NVIDIA, AMD, or Intel GPU with hardware encoding support
 
 ---
 
-## Instalación
+## Installation
 
 ```bash
 git clone https://github.com/jhonsnake/sunshine-hyprland
@@ -57,18 +58,18 @@ cd sunshine-hyprland
 bash scripts/install.sh
 ```
 
-El script:
-1. Instala `sunshine-bin` desde AUR
-2. Copia los scripts a `~/.local/bin/`
-3. Copia `sunshine.conf` a `~/.config/sunshine/`
-4. Abre los puertos necesarios en UFW (si está activo)
-5. Agrega `exec-once` al config de Hyprland
+The script will:
+1. Install `sunshine-bin` from AUR
+2. Copy scripts to `~/.local/bin/`
+3. Copy `sunshine.conf` to `~/.config/sunshine/`
+4. Open required ports in UFW (if active)
+5. Add `exec-once` to your Hyprland config
 
 ---
 
-## Configuración manual (sin install.sh)
+## Manual setup (without install.sh)
 
-### 1. Copiar scripts
+### 1. Copy scripts
 
 ```bash
 cp scripts/sunshine-start.sh ~/.local/bin/
@@ -77,24 +78,24 @@ cp scripts/sunshine-disconnect.sh ~/.local/bin/
 chmod +x ~/.local/bin/sunshine-*.sh
 ```
 
-### 2. Copiar config de Sunshine
+### 2. Copy Sunshine config
 
 ```bash
 mkdir -p ~/.config/sunshine
 cp .config/sunshine/sunshine.conf ~/.config/sunshine/
 ```
 
-> Si usas AMD/Intel cambia `encoder=nvenc` por `encoder=vaapi`
+> For AMD/Intel change `encoder=nvenc` to `encoder=vaapi`
 
-### 3. Autostart en Hyprland
+### 3. Autostart in Hyprland
 
-Agrega a `~/.config/hypr/hyprland.conf` o `userprefs.conf`:
+Add to `~/.config/hypr/hyprland.conf` or `userprefs.conf`:
 
 ```ini
 exec-once = ~/.local/bin/sunshine-start.sh
 ```
 
-### 4. Abrir puertos (si usas UFW)
+### 4. Open firewall ports (if using UFW)
 
 ```bash
 sudo ufw allow 47984/tcp comment "Sunshine HTTPS"
@@ -109,53 +110,56 @@ sudo ufw allow 48002/udp comment "Sunshine Mic"
 
 ---
 
-## Primer uso
+## First use
 
-1. Inicia sesión en Hyprland — Sunshine arranca automáticamente con el display virtual
-2. Abre **`https://localhost:47990`** en tu navegador y crea usuario + contraseña
-3. En **Moonlight** o **Artemis** agrega tu IP local como host nuevo
-4. Al conectar por primera vez aparece un PIN de 4 dígitos — ingrésalo en la pestaña **Pin** del panel web
-5. Listo — tus workspaces aparecen en el cliente remoto
+1. Log into Hyprland — Sunshine starts automatically with the virtual display
+2. Open **`https://localhost:47990`** in your browser and create a username + password
+3. In **Moonlight** or **Artemis** add your local IP as a new host
+4. On first connect a 4-digit PIN appears — enter it in the **Pin** tab of the web panel
+5. Done — your workspaces appear on the remote client
 
 ---
 
-## Estructura de archivos
+## File structure
 
 ```
 sunshine-hyprland/
 ├── scripts/
-│   ├── install.sh            # Instalador automático
-│   ├── sunshine-start.sh     # Crea el display virtual y lanza Sunshine
-│   ├── sunshine-connect.sh   # Se ejecuta al conectar un cliente (mueve workspaces)
-│   └── sunshine-disconnect.sh # Se ejecuta al desconectar (regresa workspaces)
+│   ├── install.sh             # Automatic installer
+│   ├── sunshine-start.sh      # Creates virtual display and launches Sunshine
+│   ├── sunshine-connect.sh    # Runs on client connect (moves workspaces, turns off monitor)
+│   └── sunshine-disconnect.sh # Runs on client disconnect (restores workspaces, turns on monitor)
 └── .config/
     └── sunshine/
-        └── sunshine.conf     # Config de Sunshine (capture, encoder, prep_cmd)
+        └── sunshine.conf      # Sunshine config (capture, encoder, prep_cmd)
 ```
 
 ---
 
-## Resolución del display virtual
+## Virtual display resolution
 
-Por defecto `1920x1080@60`. Para cambiarla edita en `sunshine-start.sh`:
+Default is `1920x1080@60`. To change it, edit `sunshine-start.sh`:
 
 ```bash
 hyprctl keyword monitor "$HEADLESS_NAME,1920x1080@60,9999x0,1"
-#                                       ^^^^^^^^^^^^ cambia esto
+#                                       ^^^^^^^^^^^^ change this
 ```
 
 ---
 
 ## Troubleshooting
 
-**El cliente ve el escritorio vacío (sin ventanas)**
-El script de connect no corrió. Verifica que `global_prep_cmd` está en `sunshine.conf` y que los scripts tienen permiso de ejecución.
+**Client sees an empty desktop (no windows)**
+The connect script did not run. Check that `global_prep_cmd` is set in `sunshine.conf` and that the scripts have execute permission.
 
-**Sunshine captura DP-1 en lugar del headless**
-El nombre del headless cambió. Reinicia Sunshine con `pkill sunshine && ~/.local/bin/sunshine-start.sh`.
+**Sunshine captures DP-1 instead of the headless display**
+The headless monitor name changed. Restart Sunshine: `pkill sunshine && ~/.local/bin/sunshine-start.sh`.
 
-**No conecta desde la red local**
-Verifica firewall con `sudo ufw status | grep -i sunshine`. Si no aparece nada ejecuta el paso 4 de configuración manual.
+**Cannot connect from the local network**
+Check firewall with `sudo ufw status | grep -i sunshine`. If nothing shows, run step 4 of the manual setup.
 
-**AMD/Intel: no hay imagen o falla el encoder**
-Cambia `encoder=nvenc` por `encoder=vaapi` en `~/.config/sunshine/sunshine.conf`.
+**AMD/Intel: no image or encoder failure**
+Change `encoder=nvenc` to `encoder=vaapi` in `~/.config/sunshine/sunshine.conf`.
+
+**Physical monitor stays off after disconnecting**
+Run manually: `hyprctl dispatch dpms on DP-1`

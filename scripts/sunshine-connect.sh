@@ -1,5 +1,7 @@
 #!/bin/bash
-# Mueve workspaces de DP-1 al display virtual al conectar
+# Runs when a Moonlight/Artemis client connects
+# Migrates workspaces from DP-1 to the virtual headless display
+# and turns off the physical monitor
 
 HEADLESS=$(hyprctl monitors -j | python3 -c \
     "import sys,json; ms=[m['name'] for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]; print(ms[0] if ms else '')")
@@ -14,3 +16,6 @@ for id in $WS_IDS; do
 done
 
 hyprctl dispatch focusmonitor "$HEADLESS"
+
+# Turn off physical monitor while remote session is active
+hyprctl dispatch dpms off DP-1
