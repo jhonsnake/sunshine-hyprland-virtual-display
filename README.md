@@ -43,10 +43,12 @@ Replicates **Apollo**-style virtual display behavior on Linux: creates a headles
 
 ## Requirements
 
-- Hyprland (any recent version)
+- Hyprland (any recent version) — distro-agnostic
 - `python3` (used to detect the dynamic headless monitor name)
-- `paru` or `yay` (to install from AUR)
+- Sunshine package available for your distro
 - NVIDIA, AMD, or Intel GPU with hardware encoding support
+
+> The `install.sh` script assumes an Arch-based distro (uses `paru` or `yay` to install `sunshine-bin` from AUR). On Debian/Ubuntu/Fedora, install Sunshine manually from [LizardByte's releases](https://github.com/LizardByte/Sunshine/releases) and follow the **Manual setup** section below.
 
 ---
 
