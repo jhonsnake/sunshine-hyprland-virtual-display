@@ -53,8 +53,8 @@ Replicates **Apollo**-style virtual display behavior on Linux: creates a headles
 ## Installation
 
 ```bash
-git clone https://github.com/jhonsnake/sunshine-hyprland
-cd sunshine-hyprland
+git clone https://github.com/jhonsnake/sunshine-hyprland-virtual-display
+cd sunshine-hyprland-virtual-display
 bash scripts/install.sh
 ```
 
@@ -123,7 +123,7 @@ sudo ufw allow 48002/udp comment "Sunshine Mic"
 ## File structure
 
 ```
-sunshine-hyprland/
+sunshine-hyprland-virtual-display/
 ├── scripts/
 │   ├── install.sh             # Automatic installer
 │   ├── sunshine-start.sh      # Creates virtual display and launches Sunshine
