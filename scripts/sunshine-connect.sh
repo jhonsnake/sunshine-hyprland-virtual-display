@@ -17,7 +17,11 @@ LOG="$HOME/.local/share/sunshine-headless.log"
 CONF="$HOME/.config/sunshine/sunshine.conf"
 
 # --- 1. unlock hyprlock if active (no-op if not installed/running) ----------
-pkill -x hyprlock 2>/dev/null
+# Use the session-lock protocol path (loginctl) instead of pkill. SIGKILLing
+# hyprlock leaves the compositor holding an orphan ext-session-lock and strands
+# the session on the "lockscreen app died" recovery screen, which the remote
+# client sees as a black frame. loginctl unlock-session is a no-op when
+# nothing is locked, so it's safe regardless of session state.
 loginctl unlock-session 2>/dev/null
 
 # --- 2. pause hypridle so the session won't lock/dim during remote use ------
