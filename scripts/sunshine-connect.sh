@@ -7,9 +7,11 @@
 #   3. Migrate user workspaces from DP-1 onto the persistent HEADLESS monitor.
 #   4. Turn off the physical monitor (DPMS off DP-1).
 #
-# The HEADLESS monitor itself is created at session start by sunshine-start.sh
-# and lives for the whole session. Workspace 11 is pre-bound to HEADLESS by
-# that script.
+# The HEADLESS monitor is normally created once per session by
+# sunshine-start.sh, but if it's gone at connect time (post-S3 resume edge
+# case) this script self-heals: recreates HEADLESS, rewrites sunshine.conf
+# output_name, and detach-restarts sunshine. Workspace 11 is pre-bound to
+# HEADLESS by sunshine-start.sh (and re-bound here on self-heal).
 
 LOG="$HOME/.local/share/sunshine-headless.log"
 
@@ -25,10 +27,33 @@ pkill -STOP -x hypridle 2>/dev/null
 HEADLESS=$(hyprctl monitors -j | python3 -c \
     "import sys,json; ms=[m['name'] for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]; print(ms[0] if ms else '')")
 
+# Self-heal: if HEADLESS is missing (e.g. Hyprland tore it down across S3
+# resume), recreate it AND restart sunshine so it re-reads output_name.
+# The current sunshine process spawned us, so the restart runs detached via
+# setsid+nohup. Client briefly sees disconnect, then can reconnect cleanly.
 if [ -z "$HEADLESS" ]; then
-    echo "$(date -Iseconds) WARNING: no HEADLESS monitor found on connect" >> "$LOG"
+    echo "$(date -Iseconds) WARNING: no HEADLESS on connect, self-healing" >> "$LOG"
+    hyprctl output create headless >> "$LOG" 2>&1
+    sleep 0.8
+    HEADLESS=$(hyprctl monitors -j | python3 -c \
+        "import sys,json; ms=[m['name'] for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]; print(ms[0] if ms else '')")
+    if [ -z "$HEADLESS" ]; then
+        echo "$(date -Iseconds) ERROR: self-heal failed, could not create HEADLESS" >> "$LOG"
+        exit 0
+    fi
+    hyprctl keyword monitor "$HEADLESS,1920x1080@60,9999x0,1" >> "$LOG" 2>&1
+    hyprctl keyword workspace "11, monitor:$HEADLESS, default:true, persistent:true" >> "$LOG" 2>&1
+    sed -i "s/^output_name *=.*/output_name = $HEADLESS/" "$HOME/.config/sunshine/sunshine.conf"
+    echo "$(date -Iseconds) self-heal: recreated $HEADLESS, scheduling sunshine restart" >> "$LOG"
+    setsid nohup bash -c 'sleep 0.5; pkill -x sunshine; sleep 1; exec sunshine' \
+        >> "$LOG" 2>&1 < /dev/null &
     exit 0
 fi
+
+# Defensive dpms-on for HEADLESS — covers post-S3 resume where the virtual
+# output came back in dpms-off state and hypridle's after_sleep_cmd didn't
+# fire (e.g. client reconnected before that script's sleep elapsed).
+hyprctl dispatch dpms on "$HEADLESS" >> "$LOG" 2>&1
 
 # Re-pin workspaces 1-10 to HEADLESS via hyprctl keyword BEFORE moving them.
 # Without this re-pin, the static "monitor:DP-1" rule from sunshine-start.sh

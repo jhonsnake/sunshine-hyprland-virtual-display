@@ -153,13 +153,14 @@ sudo ufw allow 48002/udp comment "Sunshine Mic"
 ```
 sunshine-hyprland-virtual-display/
 ├── scripts/
-│   ├── install.sh             # Automatic installer
-│   ├── sunshine-start.sh      # Creates HEADLESS, pins workspaces, writes output_name, launches Sunshine
-│   ├── sunshine-connect.sh    # On connect: migrates ws 1-10 -> HEADLESS, turns off DP-1, pauses hypridle
-│   └── sunshine-disconnect.sh # On disconnect: restores ws, turns on DP-1, resumes hypridle
+│   ├── install.sh               # Automatic installer
+│   ├── sunshine-start.sh        # Creates HEADLESS, pins workspaces, writes output_name, launches Sunshine
+│   ├── sunshine-connect.sh      # On connect: migrates ws 1-10 -> HEADLESS, turns off DP-1, pauses hypridle (self-heals if HEADLESS missing)
+│   ├── sunshine-disconnect.sh   # On disconnect: restores ws, turns on DP-1, resumes hypridle
+│   └── sunshine-after-sleep.sh  # Runs from hypridle after_sleep_cmd — fixes black screen after S3 resume
 └── .config/
     └── sunshine/
-        └── sunshine.conf      # Sunshine config (capture, encoder, global_prep_cmd, output_name placeholder)
+        └── sunshine.conf        # Sunshine config (capture, encoder, global_prep_cmd, output_name placeholder)
 ```
 
 ---
@@ -192,6 +193,17 @@ Sunshine cached the wrong `output_name`. This happens if Sunshine was already ru
 
 **Client sees an empty desktop (no windows)**
 `sunshine-connect.sh` didn't migrate workspaces. Check `~/.local/share/sunshine-headless.log` for errors and confirm `global_prep_cmd` is set in `sunshine.conf`.
+
+**Client sees a solid black frame after the PC came back from suspend (S3)**
+After resume, Hyprland's virtual HEADLESS output exists but its scanout buffer is frozen — Sunshine keeps streaming it but the remote sees black. The fix is `scripts/sunshine-after-sleep.sh` wired to hypridle's `after_sleep_cmd`. The installer adds it automatically; for manual setup add this inside the `general { }` block of `~/.config/hypr/hypridle.conf`:
+```ini
+general {
+    after_sleep_cmd = ~/.local/bin/sunshine-after-sleep.sh
+}
+```
+Then restart hypridle (`pkill -x hypridle && setsid nohup hypridle &`). Verify with `grep after_sleep ~/.local/share/sunshine-headless.log` after the next resume.
+
+As a second line of defense, `sunshine-connect.sh` is self-healing: if HEADLESS is gone at connect time (rare — usually means Hyprland tore it down on resume) it recreates the monitor, rewrites `output_name`, and detach-restarts Sunshine. The client briefly disconnects and reconnects cleanly.
 
 **Physical monitor stays off after disconnecting**
 Run manually: `hyprctl dispatch dpms on DP-1`

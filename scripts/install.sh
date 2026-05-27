@@ -27,10 +27,15 @@ fi
 # Copy scripts
 info "Installing scripts..."
 mkdir -p ~/.local/bin
-cp scripts/sunshine-start.sh scripts/sunshine-connect.sh scripts/sunshine-disconnect.sh ~/.local/bin/
+cp scripts/sunshine-start.sh \
+   scripts/sunshine-connect.sh \
+   scripts/sunshine-disconnect.sh \
+   scripts/sunshine-after-sleep.sh \
+   ~/.local/bin/
 chmod +x ~/.local/bin/sunshine-start.sh \
          ~/.local/bin/sunshine-connect.sh \
-         ~/.local/bin/sunshine-disconnect.sh
+         ~/.local/bin/sunshine-disconnect.sh \
+         ~/.local/bin/sunshine-after-sleep.sh
 
 # Copy Sunshine config (do not overwrite if the user already customized it)
 if [ ! -f ~/.config/sunshine/sunshine.conf ]; then
@@ -79,6 +84,30 @@ if [ -n "$TARGET_CONF" ]; then
 else
     warn "hyprland.conf not found — add this line manually:"
     warn "  exec-once = ~/.local/bin/sunshine-start.sh"
+fi
+
+# Wire after_sleep_cmd into hypridle if it's installed — fixes the
+# black-screen-after-S3-resume case where the wlr virtual output comes back
+# with a stale scanout buffer. Idempotent: skips if the line already exists.
+HYPRIDLE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hypridle.conf"
+if command -v hypridle &>/dev/null && [ -f "$HYPRIDLE_CONF" ]; then
+    if grep -qE '^\s*after_sleep_cmd\s*=' "$HYPRIDLE_CONF"; then
+        warn "hypridle already has after_sleep_cmd — leaving alone (verify it points to sunshine-after-sleep.sh)"
+    elif grep -qE '^\s*general\s*\{' "$HYPRIDLE_CONF"; then
+        info "Adding after_sleep_cmd to $HYPRIDLE_CONF..."
+        # Insert one line after the general { opening brace.
+        sed -i '/^\s*general\s*{/a\    after_sleep_cmd = '"$HOME"'/.local/bin/sunshine-after-sleep.sh  # repaint HEADLESS after S3 resume' "$HYPRIDLE_CONF"
+        # Reload hypridle if it's running so the change takes effect.
+        if pgrep -x hypridle >/dev/null; then
+            info "Restarting hypridle to apply config..."
+            pkill -x hypridle
+            sleep 0.3
+            setsid nohup hypridle >/dev/null 2>&1 < /dev/null &
+        fi
+    else
+        warn "$HYPRIDLE_CONF has no 'general {' block — add this manually inside one:"
+        warn "  after_sleep_cmd = ~/.local/bin/sunshine-after-sleep.sh"
+    fi
 fi
 
 echo ""
