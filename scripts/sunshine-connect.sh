@@ -2,66 +2,34 @@
 # Runs when a Moonlight/Artemis client connects (Sunshine global_prep_cmd "do").
 #
 # Responsibilities (in order):
-#   1. Unlock any active hyprlock so the remote client doesn't land on a lock screen.
-#   2. Pause hypridle (if present) so the session doesn't lock/dim/suspend
-#      during remote use. Resumed in sunshine-disconnect.sh.
-#   3. Create a fresh virtual HEADLESS monitor and update sunshine.conf's
-#      output_name to its assigned name (e.g. HEADLESS-3). Sunshine (wlr
-#      capture) re-reads output_name when starting the stream capture.
-#   4. Migrate user workspaces from DP-1 onto the new HEADLESS monitor.
-#   5. Turn off the physical monitor (DPMS off DP-1).
+#   1. Drop any active hyprlock via loginctl (NOT pkill — see history note).
+#   2. Pause hypridle so the session won't lock/dim/suspend during remote use.
+#   3. Migrate user workspaces from DP-1 onto the persistent HEADLESS monitor.
+#   4. Turn off the physical monitor (DPMS off DP-1).
 #
-# The HEADLESS monitor is torn down in sunshine-disconnect.sh ("undo").
+# The HEADLESS monitor itself is created at session start by sunshine-start.sh
+# and lives for the whole session. Workspace 11 is pre-bound to HEADLESS by
+# that script.
 
 LOG="$HOME/.local/share/sunshine-headless.log"
-CONF="$HOME/.config/sunshine/sunshine.conf"
 
-# --- 1. unlock hyprlock if active (no-op if not installed/running) ----------
-# Use the session-lock protocol path (loginctl) instead of pkill. SIGKILLing
-# hyprlock leaves the compositor holding an orphan ext-session-lock and strands
-# the session on the "lockscreen app died" recovery screen, which the remote
-# client sees as a black frame. loginctl unlock-session is a no-op when
-# nothing is locked, so it's safe regardless of session state.
+# --- 1. unlock --------------------------------------------------------------
+# Use the session-lock protocol path. SIGKILLing hyprlock would orphan
+# Hyprland's ext-session-lock and strand the session on the recovery screen.
 loginctl unlock-session 2>/dev/null
 
-# --- 2. pause hypridle so the session won't lock/dim during remote use ------
-# SIGSTOP preserves the daemon's state; resumed in sunshine-disconnect.sh.
+# --- 2. pause hypridle (SIGSTOP preserves state for SIGCONT in disconnect) --
 pkill -STOP -x hypridle 2>/dev/null
 
-# --- 3. create HEADLESS monitor ---------------------------------------------
-# Remove any HEADLESS residuals first (paranoia; should normally be clean).
-while read -r name; do
-    [ -n "$name" ] && hyprctl output remove "$name" >> "$LOG" 2>&1 && sleep 0.3
-done < <(hyprctl monitors -j 2>/dev/null | python3 -c \
-    "import sys,json; [print(m['name']) for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]")
-
-hyprctl output create headless >> "$LOG" 2>&1
-sleep 0.8
-
+# --- 3. find the persistent HEADLESS and migrate workspaces -----------------
 HEADLESS=$(hyprctl monitors -j | python3 -c \
     "import sys,json; ms=[m['name'] for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]; print(ms[0] if ms else '')")
 
 if [ -z "$HEADLESS" ]; then
-    echo "$(date -Iseconds) ERROR: failed to create headless monitor" >> "$LOG"
-    exit 1
+    echo "$(date -Iseconds) WARNING: no HEADLESS monitor found on connect" >> "$LOG"
+    exit 0
 fi
 
-echo "$(date -Iseconds) Headless created: $HEADLESS" >> "$LOG"
-
-# 1920x1080@60, positioned far off-screen relative to your real monitors.
-hyprctl keyword monitor "$HEADLESS,1920x1080@60,9999x0,1" >> "$LOG" 2>&1
-sleep 0.3
-
-# Update output_name in sunshine.conf with the real name assigned by Hyprland.
-sed -i "s/^output_name *=.*/output_name = $HEADLESS/" "$CONF"
-
-# Belt-and-suspenders: try to get Sunshine to re-read config. SIGHUP is a no-op
-# on Sunshine versions that don't implement reload — the stream proceeds with
-# whatever output_name was loaded at process start. If your stream lands on
-# the wrong display, restart Sunshine after editing the conf instead.
-pkill -HUP -x sunshine 2>/dev/null
-
-# --- 4. migrate workspaces DP-1 -> HEADLESS ---------------------------------
 WS_IDS=$(hyprctl workspaces -j | python3 -c \
     "import sys,json; [print(w['id']) for w in json.load(sys.stdin) if w['monitor']=='DP-1' and w['id']>0]")
 
@@ -71,5 +39,7 @@ done
 
 hyprctl dispatch focusmonitor "$HEADLESS"
 
-# --- 5. turn off the physical monitor ---------------------------------------
+# --- 4. turn off the physical monitor ---------------------------------------
 hyprctl dispatch dpms off DP-1
+
+echo "$(date -Iseconds) Client connected, workspaces migrated to $HEADLESS" >> "$LOG"

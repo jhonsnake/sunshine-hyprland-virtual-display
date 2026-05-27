@@ -5,12 +5,13 @@
 #   1. Resume hypridle (paused in sunshine-connect.sh).
 #   2. Turn the physical monitor back on (DPMS on DP-1).
 #   3. Migrate workspaces from HEADLESS back to DP-1.
-#   4. Remove the HEADLESS monitor so it doesn't keep receiving workspaces
-#      while no remote session is active.
+#
+# The HEADLESS monitor itself is NOT removed — it persists for the whole
+# session so Sunshine's cached output_name stays valid for the next connect.
 
 LOG="$HOME/.local/share/sunshine-headless.log"
 
-# --- 1. resume hypridle (no-op if not installed/running) --------------------
+# --- 1. resume hypridle -----------------------------------------------------
 pkill -CONT -x hypridle 2>/dev/null
 
 HEADLESS=$(hyprctl monitors -j | python3 -c \
@@ -19,10 +20,10 @@ HEADLESS=$(hyprctl monitors -j | python3 -c \
 # --- 2. turn the physical monitor back on -----------------------------------
 hyprctl dispatch dpms on DP-1
 
-# --- 3. migrate workspaces HEADLESS -> DP-1 ---------------------------------
+# --- 3. migrate workspaces HEADLESS -> DP-1, except the dedicated ws 11 ----
 if [ -n "$HEADLESS" ]; then
     WS_IDS=$(hyprctl workspaces -j | python3 -c \
-        "import sys,json; [print(w['id']) for w in json.load(sys.stdin) if w['monitor']=='$HEADLESS' and w['id']>0]")
+        "import sys,json; [print(w['id']) for w in json.load(sys.stdin) if w['monitor']=='$HEADLESS' and w['id']>0 and w['id']!=11]")
 
     for id in $WS_IDS; do
         hyprctl dispatch moveworkspacetomonitor "$id" DP-1
@@ -31,11 +32,4 @@ fi
 
 hyprctl dispatch focusmonitor DP-1
 
-# --- 4. remove the HEADLESS monitor -----------------------------------------
-# Clears ALL HEADLESS-N entries in case one was left over.
-while read -r name; do
-    [ -n "$name" ] && hyprctl output remove "$name" >> "$LOG" 2>&1 && sleep 0.3
-done < <(hyprctl monitors -j 2>/dev/null | python3 -c \
-    "import sys,json; [print(m['name']) for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]")
-
-echo "$(date -Iseconds) Headless removed, remote session ended" >> "$LOG"
+echo "$(date -Iseconds) Client disconnected, workspaces returned to DP-1" >> "$LOG"

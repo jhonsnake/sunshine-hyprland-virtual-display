@@ -2,9 +2,7 @@
 
 Remote access setup for **Hyprland (Wayland)** using [Sunshine](https://github.com/LizardByte/Sunshine) as the server and [Moonlight](https://moonlight-stream.org/) / **Artemis** as the client.
 
-Replicates **Apollo**-style virtual display behavior on Linux: a headless virtual monitor becomes the remote session, completely separate from your physical display.
-
-The virtual monitor is created **on-demand** when a client connects and **torn down on disconnect**, so it never sits around receiving local workspaces while no remote session is active.
+Replicates **Apollo**-style virtual display behavior on Linux: a persistent headless monitor lives alongside your physical display and becomes the remote session when a client connects. Local workspaces are pinned to the physical monitor so they don't accidentally land on the invisible headless.
 
 ---
 
@@ -18,45 +16,53 @@ The virtual monitor is created **on-demand** when a client connects and **torn d
 | Windows open on the remote client, not the physical monitor | ✅ |
 | Physical monitor turns off during remote session | ✅ |
 | Simultaneous remote access without disturbing your physical session | ✅ |
-| No phantom monitor stealing local workspaces between sessions | ✅ (on-demand mode) |
+| Local windows never accidentally open on the invisible virtual display | ✅ (workspace pinning) |
 | X11 / other compositors | ❌ (wlroots/Hyprland only) |
 
 ---
 
 ## How it works
 
-**Idle (no remote client):** only your physical monitor exists.
+**At session start:** `sunshine-start.sh` (Hyprland `exec-once`) creates a persistent headless monitor, pins workspaces 1-10 to your physical display, dedicates workspace 11 to the headless, writes the headless's name into `sunshine.conf`, and then exec's Sunshine. The monitor lives for the whole Hyprland session.
 
 ```
-┌───────────────────────────────────────────────────────┐
-│  Hyprland                                             │
-│                                                       │
-│  DP-1 (physical monitor)                              │
-│  ┌──────────────────┐                                 │
-│  │  your workspaces │                                 │
-│  └──────────────────┘                                 │
-│                                                       │
-│  Sunshine: running, waiting for a client              │
-└───────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Hyprland                                                │
+│                                                          │
+│  DP-1 (physical monitor)        HEADLESS-N (virtual)     │
+│  ┌──────────────────┐           ┌──────────────────┐     │
+│  │  workspaces 1-10 │           │  workspace 11    │     │
+│  │  your windows    │           │  (empty, ready)  │     │
+│  └──────────────────┘           └──────────────────┘     │
+│                                                          │
+│  Sunshine: capturing HEADLESS-N (cached at startup)      │
+└──────────────────────────────────────────────────────────┘
 ```
 
-**Connected:** Sunshine's `global_prep_cmd` fires `sunshine-connect.sh`, which creates the headless monitor, migrates your workspaces to it, and turns DP-1 off.
+**Client connects:** `sunshine-connect.sh` migrates workspaces 1-10 from DP-1 onto HEADLESS-N, turns off the physical monitor, and pauses hypridle.
 
 ```
-┌───────────────────────────────────────────────────────┐
-│  Hyprland                                             │
-│                                                       │
-│  DP-1 (off / DPMS)         HEADLESS-N (virtual)       │
-│  ┌──────────────────┐      ┌──────────────────┐       │
-│  │  blank           │      │  your workspaces │ ◄──── Sunshine captures
-│  └──────────────────┘      └──────────────────┘       │
-└───────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Hyprland                                                │
+│                                                          │
+│  DP-1 (off / DPMS)              HEADLESS-N (virtual)     │
+│  ┌──────────────────┐           ┌──────────────────┐     │
+│  │  blank           │           │  workspaces 1-10 │ ◄── Sunshine captures
+│  │                  │           │  your windows    │     │
+│  └──────────────────┘           └──────────────────┘     │
+└──────────────────────────────────────────────────────────┘
           │
           ▼ stream (nvenc/vaapi)
    Moonlight / Artemis (Android, iOS, Windows, TV)
 ```
 
-**Disconnected:** `sunshine-disconnect.sh` migrates workspaces back to DP-1, turns it back on, and removes the headless monitor.
+**Client disconnects:** `sunshine-disconnect.sh` migrates workspaces back to DP-1, turns it on, resumes hypridle. The headless monitor stays put — ready for the next connection without requiring Sunshine to re-read its config.
+
+### Why persistent headless instead of on-demand
+
+Sunshine's `wlr-capture` backend reads `output_name` once at process startup and **caches it for the process lifetime**. SIGHUP and the HTTP API do not refresh the cached value. So if the headless monitor is created on-demand by the connect hook, Sunshine still looks for the monitor name it loaded at startup (which no longer exists) and silently falls back to capturing the first available output — typically your physical display, producing a black/wrong frame on the remote client.
+
+The persistent headless avoids that race entirely: the monitor exists and its name is in `sunshine.conf` *before* Sunshine starts, so Sunshine's cached value is always correct.
 
 ---
 
@@ -134,11 +140,11 @@ sudo ufw allow 48002/udp comment "Sunshine Mic"
 
 ## First use
 
-1. Log into Hyprland — Sunshine starts automatically (no virtual display yet)
+1. Log into Hyprland — the headless monitor is created and Sunshine starts automatically
 2. Open **`https://localhost:47990`** in your browser and create a username + password
 3. In **Moonlight** or **Artemis** add your local IP as a new host
 4. On first connect a 4-digit PIN appears — enter it in the **Pin** tab of the web panel
-5. Done — the headless monitor materializes, your workspaces move to it, and the physical display turns off
+5. Done — your workspaces move from DP-1 to the headless monitor and stream to the remote client
 
 ---
 
@@ -148,19 +154,19 @@ sudo ufw allow 48002/udp comment "Sunshine Mic"
 sunshine-hyprland-virtual-display/
 ├── scripts/
 │   ├── install.sh             # Automatic installer
-│   ├── sunshine-start.sh      # Hyprland exec-once: just launches Sunshine
-│   ├── sunshine-connect.sh    # On client connect: creates HEADLESS, migrates workspaces, turns off DP-1
-│   └── sunshine-disconnect.sh # On client disconnect: restores workspaces, turns on DP-1, removes HEADLESS
+│   ├── sunshine-start.sh      # Creates HEADLESS, pins workspaces, writes output_name, launches Sunshine
+│   ├── sunshine-connect.sh    # On connect: migrates ws 1-10 -> HEADLESS, turns off DP-1, pauses hypridle
+│   └── sunshine-disconnect.sh # On disconnect: restores ws, turns on DP-1, resumes hypridle
 └── .config/
     └── sunshine/
-        └── sunshine.conf      # Sunshine config (capture, encoder, global_prep_cmd)
+        └── sunshine.conf      # Sunshine config (capture, encoder, global_prep_cmd, output_name placeholder)
 ```
 
 ---
 
 ## Virtual display resolution
 
-Default is `1920x1080@60`. To change it, edit `sunshine-connect.sh`:
+Default is `1920x1080@60`. To change it, edit `sunshine-start.sh`:
 
 ```bash
 hyprctl keyword monitor "$HEADLESS,1920x1080@60,9999x0,1"
@@ -169,30 +175,23 @@ hyprctl keyword monitor "$HEADLESS,1920x1080@60,9999x0,1"
 
 ---
 
-## Persistent-headless mode (alternative)
+## Workspace layout
 
-If your Sunshine version does **not** re-read `output_name` between streams and the SIGHUP fallback in `sunshine-connect.sh` doesn't work for you, the stream will land on whatever monitor was named in `sunshine.conf` at Sunshine startup — typically DP-1 instead of the freshly-created HEADLESS-N.
+`sunshine-start.sh` pins:
+- **Workspaces 1-10** → `DP-1` (your physical monitor)
+- **Workspace 11** → `HEADLESS-N` (dedicated "remote" workspace, persistent)
 
-In that case revert to the older "create at boot, keep forever" model:
-
-1. In `sunshine-start.sh`, restore the headless-creation block from the [pre-on-demand version](https://github.com/jhonsnake/sunshine-hyprland-virtual-display/blob/c08a289/scripts/sunshine-start.sh).
-2. Remove the create/remove blocks (sections 3 and 4) from `sunshine-connect.sh` / `sunshine-disconnect.sh`.
-3. To prevent the persistent headless from receiving local workspaces, pin your normal workspaces to your physical monitor in Hyprland config:
-   ```ini
-   workspace = 1, monitor:DP-1, default:true
-   workspace = 2, monitor:DP-1
-   # ... up to your highest commonly-used workspace
-   ```
+If you use workspace numbers above 10 locally, edit the `for ws in 1 2 3 4 5 6 7 8 9 10;` loop in `sunshine-start.sh` to include them, and change `11` to your "remote" workspace number.
 
 ---
 
 ## Troubleshooting
 
-**Client sees an empty desktop (no windows)**
-The connect script didn't run, or workspaces didn't migrate. Check `~/.local/share/sunshine-headless.log` for errors and confirm `global_prep_cmd` is set in `sunshine.conf`.
+**Client sees the physical monitor instead of the headless one (or a black frame)**
+Sunshine cached the wrong `output_name`. This happens if Sunshine was already running when the headless was created. Fix: `pkill sunshine` then re-run `~/.local/bin/sunshine-start.sh &` (or log out and back in). Verify with: `grep output_name ~/.config/sunshine/sunshine.conf` matches the active HEADLESS in `hyprctl monitors`.
 
-**Stream lands on the physical monitor instead of the virtual one**
-Sunshine didn't re-read `output_name` after `sunshine-connect.sh` updated it. Try restarting Sunshine: `pkill sunshine` (the Hyprland `exec-once` will not relaunch it — start it manually with `~/.local/bin/sunshine-start.sh &` or log out and back in). If this happens consistently, switch to **persistent-headless mode** above.
+**Client sees an empty desktop (no windows)**
+`sunshine-connect.sh` didn't migrate workspaces. Check `~/.local/share/sunshine-headless.log` for errors and confirm `global_prep_cmd` is set in `sunshine.conf`.
 
 **Physical monitor stays off after disconnecting**
 Run manually: `hyprctl dispatch dpms on DP-1`
@@ -203,5 +202,14 @@ Check firewall with `sudo ufw status | grep -i sunshine`. If nothing shows, run 
 **AMD/Intel: no image or encoder failure**
 Change `encoder=nvenc` to `encoder=vaapi` in `~/.config/sunshine/sunshine.conf`.
 
+**"Oopsie daisy, lockscreen app died" on the physical screen**
+Something SIGKILL'd hyprlock while an `ext-session-lock` was active. To recover: switch to a TTY (`Ctrl+Alt+F3`), log in, and run:
+```bash
+hyprctl --instance 0 'keyword misc:allow_session_lock_restore 1'
+killall -9 hyprlock
+hyprctl --instance 0 'dispatch exec hyprlock'
+```
+To prevent it: never `pkill hyprlock` from a script; use `loginctl unlock-session` instead, and consider setting `misc { allow_session_lock_restore = true }` in your Hyprland config as a safety net.
+
 **`hyprlock` or `hypridle` not installed**
-Harmless — the `pkill` calls in the connect/disconnect scripts are no-ops if those processes don't exist.
+Harmless — the `pkill` and `loginctl` calls are no-ops if those processes/sessions don't exist.
