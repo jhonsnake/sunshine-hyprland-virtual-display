@@ -21,7 +21,7 @@ loginctl unlock-session 2>/dev/null
 # --- 2. pause hypridle (SIGSTOP preserves state for SIGCONT in disconnect) --
 pkill -STOP -x hypridle 2>/dev/null
 
-# --- 3. find the persistent HEADLESS and migrate workspaces -----------------
+# --- 3. find the persistent HEADLESS, re-pin workspaces, migrate ------------
 HEADLESS=$(hyprctl monitors -j | python3 -c \
     "import sys,json; ms=[m['name'] for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]; print(ms[0] if ms else '')")
 
@@ -29,6 +29,15 @@ if [ -z "$HEADLESS" ]; then
     echo "$(date -Iseconds) WARNING: no HEADLESS monitor found on connect" >> "$LOG"
     exit 0
 fi
+
+# Re-pin workspaces 1-10 to HEADLESS via hyprctl keyword BEFORE moving them.
+# Without this re-pin, the static "monitor:DP-1" rule from sunshine-start.sh
+# yanks each workspace back to DP-1 the instant the remote user dispatches
+# `workspace N`, leaving the cursor on the (DPMS-off) physical monitor while
+# Sunshine still captures HEADLESS — symptom: windows visible, mouse stuck.
+for ws in 1 2 3 4 5 6 7 8 9 10; do
+    hyprctl keyword workspace "$ws, monitor:$HEADLESS, persistent:false" >/dev/null 2>&1
+done
 
 WS_IDS=$(hyprctl workspaces -j | python3 -c \
     "import sys,json; [print(w['id']) for w in json.load(sys.stdin) if w['monitor']=='DP-1' and w['id']>0]")

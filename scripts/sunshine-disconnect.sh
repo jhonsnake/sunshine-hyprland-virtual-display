@@ -20,7 +20,13 @@ HEADLESS=$(hyprctl monitors -j | python3 -c \
 # --- 2. turn the physical monitor back on -----------------------------------
 hyprctl dispatch dpms on DP-1
 
-# --- 3. migrate workspaces HEADLESS -> DP-1, except the dedicated ws 11 ----
+# --- 3. re-pin workspaces 1-10 back to DP-1 then migrate them --------------
+# Mirror of connect.sh: re-pin BEFORE moving so the workspaces stay on DP-1
+# afterwards instead of being pulled back to HEADLESS by leftover rules.
+for ws in 1 2 3 4 5 6 7 8 9 10; do
+    hyprctl keyword workspace "$ws, monitor:DP-1, persistent:false" >/dev/null 2>&1
+done
+
 if [ -n "$HEADLESS" ]; then
     WS_IDS=$(hyprctl workspaces -j | python3 -c \
         "import sys,json; [print(w['id']) for w in json.load(sys.stdin) if w['monitor']=='$HEADLESS' and w['id']>0 and w['id']!=11]")
