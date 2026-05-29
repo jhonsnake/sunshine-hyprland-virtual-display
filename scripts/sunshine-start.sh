@@ -36,16 +36,16 @@ fi
 echo "$(date -Iseconds) Headless created: $HEADLESS" >> "$LOG"
 
 # 1920x1080@60, placed far off-screen so it can't be reached with the mouse.
-hyprctl keyword monitor "$HEADLESS,1920x1080@60,9999x0,1" >> "$LOG" 2>&1
+hyprctl eval "hl.monitor({output=\"$HEADLESS\", mode=\"1920x1080@60.00\", position=\"9999x0\", scale=1})" >> "$LOG" 2>&1
 sleep 0.3
 
 # --- Pin workspaces so local windows stay on DP-1 ---------------------------
 # Workspaces 1-10 default to DP-1; workspace 11 lives on HEADLESS and serves
 # as the "remote" workspace that connect.sh migrates into.
 for ws in 1 2 3 4 5 6 7 8 9 10; do
-    hyprctl keyword workspace "$ws, monitor:DP-1, default:true, persistent:false" >> "$LOG" 2>&1
+    hyprctl eval "hl.workspace_rule({workspace=\"$ws\", monitor=\"DP-1\", default=true, persistent=false})" >> "$LOG" 2>&1
 done
-hyprctl keyword workspace "11, monitor:$HEADLESS, default:true, persistent:true" >> "$LOG" 2>&1
+hyprctl eval "hl.workspace_rule({workspace=\"11\", monitor=\"$HEADLESS\", default=true, persistent=true})" >> "$LOG" 2>&1
 
 # --- Write the headless name into sunshine.conf BEFORE launching sunshine ---
 # Sunshine reads output_name once and caches it for the process lifetime.

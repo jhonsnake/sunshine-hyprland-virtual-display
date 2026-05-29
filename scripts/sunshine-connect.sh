@@ -41,8 +41,8 @@ if [ -z "$HEADLESS" ]; then
         echo "$(date -Iseconds) ERROR: self-heal failed, could not create HEADLESS" >> "$LOG"
         exit 0
     fi
-    hyprctl keyword monitor "$HEADLESS,1920x1080@60,9999x0,1" >> "$LOG" 2>&1
-    hyprctl keyword workspace "11, monitor:$HEADLESS, default:true, persistent:true" >> "$LOG" 2>&1
+    hyprctl eval "hl.monitor({output=\"$HEADLESS\", mode=\"1920x1080@60.00\", position=\"9999x0\", scale=1})" >> "$LOG" 2>&1
+    hyprctl eval "hl.workspace_rule({workspace=\"11\", monitor=\"$HEADLESS\", default=true, persistent=true})" >> "$LOG" 2>&1
     sed -i "s/^output_name *=.*/output_name = $HEADLESS/" "$HOME/.config/sunshine/sunshine.conf"
     echo "$(date -Iseconds) self-heal: recreated $HEADLESS, scheduling sunshine restart" >> "$LOG"
     setsid nohup bash -c 'sleep 0.5; pkill -x sunshine; sleep 1; exec sunshine' \
@@ -53,7 +53,7 @@ fi
 # Defensive dpms-on for HEADLESS — covers post-S3 resume where the virtual
 # output came back in dpms-off state and hypridle's after_sleep_cmd didn't
 # fire (e.g. client reconnected before that script's sleep elapsed).
-hyprctl dispatch dpms on "$HEADLESS" >> "$LOG" 2>&1
+hyprctl dispatch "hl.dsp.dpms({ action=\"on\", monitor=\"$HEADLESS\"})" >> "$LOG" 2>&1
 
 # Re-pin workspaces 1-10 to HEADLESS via hyprctl keyword BEFORE moving them.
 # Without this re-pin, the static "monitor:DP-1" rule from sunshine-start.sh
@@ -61,19 +61,19 @@ hyprctl dispatch dpms on "$HEADLESS" >> "$LOG" 2>&1
 # `workspace N`, leaving the cursor on the (DPMS-off) physical monitor while
 # Sunshine still captures HEADLESS — symptom: windows visible, mouse stuck.
 for ws in 1 2 3 4 5 6 7 8 9 10; do
-    hyprctl keyword workspace "$ws, monitor:$HEADLESS, persistent:false" >/dev/null 2>&1
+    hyprctl eval "hl.workspace_rule({workspace=\"$ws\", monitor=\"$HEADLESS\", persistent=false})" > /dev/null 2>&1
 done
 
 WS_IDS=$(hyprctl workspaces -j | python3 -c \
     "import sys,json; [print(w['id']) for w in json.load(sys.stdin) if w['monitor']=='DP-1' and w['id']>0]")
 
 for id in $WS_IDS; do
-    hyprctl dispatch moveworkspacetomonitor "$id" "$HEADLESS"
+    hyprctl dispatch "hl.dsp.workspace.move({ workspace=\"$id\", monitor=\"$HEADLESS\" })"
 done
 
-hyprctl dispatch focusmonitor "$HEADLESS"
+hyprctl dispatch "hl.dsp.focus({ monitor=\"$HEADLESS\"})"
 
 # --- 4. turn off the physical monitor ---------------------------------------
-hyprctl dispatch dpms off DP-1
+hyprctl dispatch 'hl.dsp.dpms({ action="off", monitor="DP-1"})'
 
 echo "$(date -Iseconds) Client connected, workspaces migrated to $HEADLESS" >> "$LOG"
