@@ -61,14 +61,25 @@ if systemctl is-active --quiet ufw; then
     '
 fi
 
-# Add exec-once to Hyprland config if not present
-HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/userprefs.conf"
-HYPR_MAIN="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.conf"
-TARGET_CONF=""
+# Detect legacy or lua config for Hyprland
+HYPR_CONF_PROVIDER=legacy
+if [ "$(hyprctl dispatch 'hl.dsp.no_op()')" = "ok" ] ; then
+    HYPR_CONF_PROVIDER=lua
+fi
 
+# Add exec-once to Hyprland config if not present
+TARGET_CONF=""
+if [ $HYPR_CONF_PROVIDER = "legacy" ] ; then
+    HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/userprefs.conf"
+    HYPR_MAIN="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.conf"
+else
+    HYPR_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/userprefs.lua"
+    HYPR_MAIN="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.lua"
+fi
+ 
 if [ -f "$HYPR_CONF" ]; then
     TARGET_CONF="$HYPR_CONF"
-elif [ -f "$HYPR_MAIN" ]; then
+    elif [ -f "$HYPR_MAIN" ]; then
     TARGET_CONF="$HYPR_MAIN"
 fi
 
@@ -77,14 +88,27 @@ if [ -n "$TARGET_CONF" ]; then
         info "Adding autostart entry to $TARGET_CONF..."
         echo "" >> "$TARGET_CONF"
         echo "# Sunshine remote desktop" >> "$TARGET_CONF"
-        echo "exec-once = ~/.local/bin/sunshine-start.sh" >> "$TARGET_CONF"
+        if [ $HYPR_CONF_PROVIDER = "legacy" ] ; then
+            echo "exec-once = ~/.local/bin/sunshine-start.sh" >> "$TARGET_CONF"
+        else
+            sed -i '/hl\.on("hyprland\.start"/,/end\)/ {
+            /end\) i\ hl.exec_cmd("~/.local/bin/sunshine-start.sh") 
+            }' "$TARGET_CONF"
+        fi
     else
         warn "sunshine-start.sh is already in $TARGET_CONF"
     fi
 else
-    warn "hyprland.conf not found — add this line manually:"
-    warn "  exec-once = ~/.local/bin/sunshine-start.sh"
+    if [ $HYPR_CONF_PROVIDER = "legacy" ] ; then
+        warn "hyprland.conf not found — add this line manually:"
+        warn "  exec-once = ~/.local/bin/sunshine-start.sh"
+    else
+        warn "hyprland.lua not found — add this line manually:"
+        warn "  hl.on(\"hyprland.start\", function () hl.exec_cmd(~/.local/bin/sunshine-start.sh) end)"
+    fi
 fi
+
+    
 
 # Wire after_sleep_cmd into hypridle if it's installed — fixes the
 # black-screen-after-S3-resume case where the wlr virtual output comes back
