@@ -4,22 +4,16 @@
 # Responsibilities (in order):
 #   1. Drop any active hyprlock via loginctl (NOT pkill — see history note).
 #   2. Pause hypridle so the session won't lock/dim/suspend during remote use.
-#   3. Migrate user workspaces from DP-1 onto the persistent HEADLESS monitor.
-#   4. Turn off the physical monitor (DPMS off DP-1).
+#   3. Resize HEADLESS to the client's resolution and refresh rate (Apollo-style).
+#   4. Migrate user workspaces from the physical monitor onto HEADLESS.
+#   5. Turn off the physical monitor (DPMS off).
 #
 # The HEADLESS monitor is normally created once per session by
 # sunshine-start.sh, but if it's gone at connect time (post-S3 resume edge
 # case) this script self-heals: recreates HEADLESS, rewrites sunshine.conf
-# output_name, and detach-restarts sunshine. Workspace 11 is pre-bound to
-# HEADLESS by sunshine-start.sh (and re-bound here on self-heal).
+# output_name, and restarts sunshine.
 
-LOG="$HOME/.local/share/sunshine-headless.log"
-
-# Detect Hyprland config provider
-HYPR_CONF_PROVIDER=legacy
-if [ "$(hyprctl dispatch 'hl.dsp.no_op()')" = "ok" ] ; then
-    HYPR_CONF_PROVIDER=lua
-fi
+. "$HOME/.local/bin/sunshine-common.sh"
 
 # --- 1. unlock --------------------------------------------------------------
 # Use the session-lock protocol path. SIGKILLing hyprlock would orphan
@@ -29,79 +23,52 @@ loginctl unlock-session 2>/dev/null
 # --- 2. pause hypridle (SIGSTOP preserves state for SIGCONT in disconnect) --
 pkill -STOP -x hypridle 2>/dev/null
 
-# --- 3. find the persistent HEADLESS, re-pin workspaces, migrate ------------
-HEADLESS=$(hyprctl monitors -j | python3 -c \
-    "import sys,json; ms=[m['name'] for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]; print(ms[0] if ms else '')")
+# --- 3. find the persistent HEADLESS ----------------------------------------
+HEADLESS=$(headless_name)
 
 # Self-heal: if HEADLESS is missing (e.g. Hyprland tore it down across S3
 # resume), recreate it AND restart sunshine so it re-reads output_name.
-# The current sunshine process spawned us, so the restart runs detached via
-# setsid+nohup. Client briefly sees disconnect, then can reconnect cleanly.
+# The current sunshine process spawned us, so the restart runs detached.
+# The client briefly sees a disconnect, then can reconnect cleanly.
 if [ -z "$HEADLESS" ]; then
-    echo "$(date -Iseconds) WARNING: no HEADLESS on connect, self-healing" >> "$LOG"
-    hyprctl output create headless >> "$LOG" 2>&1
-    sleep 0.8
-    HEADLESS=$(hyprctl monitors -j | python3 -c \
-        "import sys,json; ms=[m['name'] for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]; print(ms[0] if ms else '')")
+    log "WARNING: no HEADLESS on connect, self-healing"
+    HEADLESS=$(create_headless)
     if [ -z "$HEADLESS" ]; then
-        echo "$(date -Iseconds) ERROR: self-heal failed, could not create HEADLESS" >> "$LOG"
+        log "ERROR: self-heal failed, could not create HEADLESS"
         exit 0
     fi
-    if [ $HYPR_CONF_PROVIDER = "lua" ] ; then
-        hyprctl eval "hl.monitor({output=\"$HEADLESS\", mode=\"1920x1080@60.00\", position=\"9999x0\", scale=1})" >> "$LOG" 2>&1
-        hyprctl eval "hl.workspace_rule({workspace=\"11\", monitor=\"$HEADLESS\", default=true, persistent=true})" >> "$LOG" 2>&1
-    else
-        hyprctl keyword monitor "$HEADLESS,1920x1080@60,9999x0,1" >> "$LOG" 2>&1
-        hyprctl keyword workspace "11, monitor:$HEADLESS, default:true, persistent:true" >> "$LOG" 2>&1
-    fi
-    sed -i "s/^output_name *=.*/output_name = $HEADLESS/" "$HOME/.config/sunshine/sunshine.conf"
-    echo "$(date -Iseconds) self-heal: recreated $HEADLESS, scheduling sunshine restart" >> "$LOG"
-    setsid nohup bash -c 'sleep 0.5; pkill -x sunshine; sleep 1; exec sunshine' \
-        >> "$LOG" 2>&1 < /dev/null &
+    log "self-heal: recreated $HEADLESS, scheduling sunshine restart"
+    launch_sunshine
     exit 0
 fi
 
 # Defensive dpms-on for HEADLESS — covers post-S3 resume where the virtual
-# output came back in dpms-off state and hypridle's after_sleep_cmd didn't
-# fire (e.g. client reconnected before that script's sleep elapsed).
-if [ $HYPR_CONF_PROVIDER = "lua" ] ; then
-    hyprctl dispatch "hl.dsp.dpms({ action=\"on\", monitor=\"$HEADLESS\"})" >> "$LOG" 2>&1
-else
-    hyprctl dispatch dpms on "$HEADLESS" >> "$LOG" 2>&1
+# output came back in dpms-off state.
+set_dpms on "$HEADLESS"
+
+# --- 4. match the client's resolution ----------------------------------------
+# Sunshine exports the client's requested mode to prep commands. Resizing the
+# existing HEADLESS keeps its name, so Sunshine's cached output_name stays valid.
+if [ "$MATCH_CLIENT_RESOLUTION" = true ] && [ -n "$SUNSHINE_CLIENT_WIDTH" ] && [ -n "$SUNSHINE_CLIENT_HEIGHT" ]; then
+    MODE="${SUNSHINE_CLIENT_WIDTH}x${SUNSHINE_CLIENT_HEIGHT}@${SUNSHINE_CLIENT_FPS:-60}"
+    SCALE=$(scale_for_height "$SUNSHINE_CLIENT_HEIGHT")
+    set_monitor "$HEADLESS" "$MODE" "$HEADLESS_POSITION" "$SCALE"
+    log "HEADLESS set to $MODE scale $SCALE for client '${SUNSHINE_CLIENT_NAME:-unknown}'"
+    sleep 0.3
 fi
 
-# Re-pin workspaces 1-10 to HEADLESS via hyprctl keyword BEFORE moving them.
-# Without this re-pin, the static "monitor:DP-1" rule from sunshine-start.sh
-# yanks each workspace back to DP-1 the instant the remote user dispatches
-# `workspace N`, leaving the cursor on the (DPMS-off) physical monitor while
-# Sunshine still captures HEADLESS — symptom: windows visible, mouse stuck.
-if [ $HYPR_CONF_PROVIDER = "lua" ] ; then
-    hyprctl eval "for ws = 1,10 do hl.workspace_rule({workspace=ws, monitor=\"$HEADLESS\", persistent=false}) end" >/dev/null 2>&1
-else
-    for ws in 1 2 3 4 5 6 7 8 9 10; do
-        hyprctl keyword workspace "$ws, monitor:$HEADLESS, persistent:false" >/dev/null 2>&1
-    done
-fi
+# --- 5. migrate workspaces ---------------------------------------------------
+# Re-pin workspaces 1-10 to HEADLESS BEFORE moving them. Without this re-pin,
+# the static rule from sunshine-start.sh yanks each workspace back to the
+# physical monitor the instant the remote user dispatches `workspace N`,
+# leaving the cursor on the (DPMS-off) physical monitor while Sunshine still
+# captures HEADLESS — symptom: windows visible, mouse stuck.
+pin_workspaces "$HEADLESS"
+move_workspaces "$PHYSICAL_MONITOR" "$HEADLESS"
+focus_monitor "$HEADLESS"
 
-WS_IDS=$(hyprctl workspaces -j | python3 -c \
-    "import sys,json; [print(w['id']) for w in json.load(sys.stdin) if w['monitor']=='DP-1' and w['id']>0]")
+# --- 6. turn off the physical monitor ---------------------------------------
+set_dpms off "$PHYSICAL_MONITOR"
 
-for id in $WS_IDS; do
-    if [ $HYPR_CONF_PROVIDER = "lua" ] ; then
-        hyprctl dispatch "hl.dsp.workspace.move({ workspace=\"$id\", monitor=\"$HEADLESS\" })"
-    else
-        hyprctl dispatch moveworkspacetomonitor "$id" "$HEADLESS"
-    fi
-done
-
-if [ $HYPR_CONF_PROVIDER = "lua" ] ; then
-    hyprctl dispatch "hl.dsp.focus({ monitor=\"$HEADLESS\"})"
-    # --- 4. turn off the physical monitor ---------------------------------------
-    hyprctl dispatch 'hl.dsp.dpms({ action="off", monitor="DP-1"})'
-else
-    hyprctl dispatch focusmonitor "$HEADLESS"
-    # --- 4. turn off the physical monitor ---------------------------------------
-    hyprctl dispatch dpms off DP-1
-fi
-
-echo "$(date -Iseconds) Client connected, workspaces migrated to $HEADLESS" >> "$LOG"
+touch "$STREAMING_FLAG"
+log "Client connected, workspaces migrated to $HEADLESS"

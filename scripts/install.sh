@@ -27,12 +27,14 @@ fi
 # Copy scripts
 info "Installing scripts..."
 mkdir -p ~/.local/bin
-cp scripts/sunshine-start.sh \
+cp scripts/sunshine-common.sh \
+   scripts/sunshine-start.sh \
    scripts/sunshine-connect.sh \
    scripts/sunshine-disconnect.sh \
    scripts/sunshine-after-sleep.sh \
    ~/.local/bin/
-chmod +x ~/.local/bin/sunshine-start.sh \
+chmod +x ~/.local/bin/sunshine-common.sh \
+         ~/.local/bin/sunshine-start.sh \
          ~/.local/bin/sunshine-connect.sh \
          ~/.local/bin/sunshine-disconnect.sh \
          ~/.local/bin/sunshine-after-sleep.sh
@@ -44,6 +46,12 @@ if [ ! -f ~/.config/sunshine/sunshine.conf ]; then
     cp .config/sunshine/sunshine.conf ~/.config/sunshine/sunshine.conf
 else
     warn "~/.config/sunshine/sunshine.conf already exists — review it manually against the example in .config/sunshine/sunshine.conf"
+fi
+
+# Optional overrides for the scripts (physical monitor, resolution matching, systemd unit...)
+if [ ! -f ~/.config/sunshine/virtual-display.conf ]; then
+    info "Copying virtual-display.conf (all options commented out)..."
+    cp .config/sunshine/virtual-display.conf ~/.config/sunshine/virtual-display.conf
 fi
 
 # Open ports in UFW if active
