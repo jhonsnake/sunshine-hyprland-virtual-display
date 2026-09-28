@@ -122,8 +122,10 @@ chmod +x ~/.local/bin/sunshine-*.sh
 
 ```bash
 mkdir -p ~/.config/sunshine
-cp .config/sunshine/sunshine.conf ~/.config/sunshine/
+sed "s|~/.local/bin/|$HOME/.local/bin/|g" .config/sunshine/sunshine.conf > ~/.config/sunshine/sunshine.conf
 ```
+
+> Sunshine runs `global_prep_cmd` without a shell, so the paths must be absolute (the `sed` above expands `~`).
 
 > For AMD/Intel change `encoder=nvenc` to `encoder=vaapi`
 
@@ -208,6 +210,9 @@ If you use workspace numbers above 10 locally, edit the `for ws in 1 2 3 4 5 6 7
 
 **Client sees the physical monitor instead of the headless one (or a black frame)**
 Sunshine cached the wrong `output_name`. This happens if Sunshine was already running when the headless was created. Fix: `pkill sunshine` then re-run `~/.local/bin/sunshine-start.sh &` (or log out and back in). Verify with: `grep output_name ~/.config/sunshine/sunshine.conf` matches the active HEADLESS in `hyprctl monitors`.
+
+**Moonlight says "Failed to start the specified application"**
+Sunshine couldn't run the `global_prep_cmd` scripts. It executes them without a shell, so `~` is not expanded — use absolute paths in `~/.config/sunshine/sunshine.conf` (e.g. `/home/you/.local/bin/sunshine-connect.sh`). The installer does this for you; check `journalctl --user -u <sunshine unit>` or Sunshine's log for `Unable to find executable`.
 
 **Client sees an empty desktop (no windows)**
 `sunshine-connect.sh` didn't migrate workspaces. Check `~/.local/share/sunshine-headless.log` for errors and confirm `global_prep_cmd` is set in `sunshine.conf`.

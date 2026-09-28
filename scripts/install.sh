@@ -43,7 +43,9 @@ chmod +x ~/.local/bin/sunshine-common.sh \
 if [ ! -f ~/.config/sunshine/sunshine.conf ]; then
     info "Copying sunshine.conf..."
     mkdir -p ~/.config/sunshine
-    cp .config/sunshine/sunshine.conf ~/.config/sunshine/sunshine.conf
+    # Sunshine runs prep commands without a shell, so "~" is never expanded:
+    # write absolute paths or the client gets "failed to start the specified application".
+    sed "s|~/.local/bin/|$HOME/.local/bin/|g" .config/sunshine/sunshine.conf > ~/.config/sunshine/sunshine.conf
 else
     warn "~/.config/sunshine/sunshine.conf already exists — review it manually against the example in .config/sunshine/sunshine.conf"
 fi
