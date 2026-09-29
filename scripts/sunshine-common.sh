@@ -70,11 +70,13 @@ pin_workspaces() { # monitor [default]
     done
 }
 
-workspaces_on() { # monitor -> ids of user workspaces on it (excluding the remote one)
+workspaces_on() { # monitor -> ids of user workspaces with windows on it (excluding the remote one)
+    # Empty ones are skipped: Hyprland auto-creates an empty placeholder as the active
+    # workspace of a monitor whose workspaces were all moved away, and recreates it if moved.
     hyprctl workspaces -j | python3 -c "
 import sys, json
 for w in json.load(sys.stdin):
-    if w['monitor'] == sys.argv[1] and 0 < w['id'] and w['id'] != int(sys.argv[2]):
+    if w['monitor'] == sys.argv[1] and 0 < w['id'] and w['id'] != int(sys.argv[2]) and w['windows'] > 0:
         print(w['id'])" "$1" "$REMOTE_WORKSPACE"
 }
 
