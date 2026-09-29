@@ -1,0 +1,104 @@
+diff --git a/src/config/values/ConfigValues.cpp b/src/config/values/ConfigValues.cpp
+index 4954aeb..9f36a49 100644
+--- a/src/config/values/ConfigValues.cpp
++++ b/src/config/values/ConfigValues.cpp
+@@ -515,6 +515,7 @@ std::vector<SP<IValue>> Values::getConfigValues() {
+         MS<Bool>("misc:enable_anr_dialog", "whether to enable the ANR (app not responding) dialog when your apps hang", true),
+         MS<Int>("misc:anr_missed_pings", "number of missed pings before showing the ANR dialog", 5, {.min = 1, .max = 20}),
+         MS<Bool>("misc:screencopy_force_8b", "forces 8 bit screencopy", true),
++        MS<Bool>("misc:screencopy_hdr_passthrough", "don't convert HDR screencopy frames to sRGB for color managed clients", false),
+         MS<Bool>("misc:disable_scale_notification", "disables notification popup when a monitor fails to set a suitable scale", false),
+         MS<Bool>("misc:size_limits_tiled", "whether to apply minsize and maxsize rules to tiled windows", false),
+ 
+diff --git a/src/managers/screenshare/ScreenshareFrame.cpp b/src/managers/screenshare/ScreenshareFrame.cpp
+index c74adcb..73fa6ae 100644
+--- a/src/managers/screenshare/ScreenshareFrame.cpp
++++ b/src/managers/screenshare/ScreenshareFrame.cpp
+@@ -3,6 +3,7 @@
+ #include "../input/InputManager.hpp"
+ #include "../permissions/DynamicPermissionManager.hpp"
+ #include "../../protocols/ColorManagement.hpp"
++#include "../../config/ConfigValue.hpp"
+ #include "../../protocols/XDGShell.hpp"
+ #include "../../Compositor.hpp"
+ #include "../../render/Renderer.hpp"
+@@ -390,6 +391,16 @@ void CScreenshareFrame::render() {
+     }
+ }
+ 
++// color managed clients can query the monitor's image description, so give them the frame in it
++static NColorManagement::PImageDescription captureImageDescription(PHLMONITOR monitor, wl_client* client) {
++    static const auto PHDRPASSTHROUGH = CConfigValue<Config::INTEGER>("misc:screencopy_hdr_passthrough");
++
++    if (*PHDRPASSTHROUGH && monitor && PROTO::colorManagement && PROTO::colorManagement->isClientCMAware(client))
++        return monitor->m_imageDescription;
++
++    return NColorManagement::DEFAULT_SRGB_IMAGE_DESCRIPTION;
++}
++
+ bool CScreenshareFrame::copyDmabuf() {
+     if (done())
+         return false;
+@@ -398,7 +409,7 @@ bool CScreenshareFrame::copyDmabuf() {
+         LOGM(Log::ERR, "Can't copy: failed to begin rendering to dma frame");
+         return false;
+     }
+-    g_pHyprRenderer->m_renderData.currentFB->setImageDescription(NColorManagement::DEFAULT_SRGB_IMAGE_DESCRIPTION);
++    g_pHyprRenderer->m_renderData.currentFB->setImageDescription(captureImageDescription(m_session->monitor(), m_session->m_client));
+ 
+     render();
+ 
+@@ -439,7 +450,7 @@ bool CScreenshareFrame::copyShm() {
+ 
+     auto       outFB = g_pHyprRenderer->createFB();
+     outFB->alloc(m_bufferSize.x, m_bufferSize.y, shm.format);
+-    outFB->setImageDescription(NColorManagement::DEFAULT_SRGB_IMAGE_DESCRIPTION);
++    outFB->setImageDescription(captureImageDescription(m_session->monitor(), m_session->m_client));
+ 
+     if (!g_pHyprRenderer->beginFullFakeRender(PMONITOR, m_damage, outFB)) {
+         LOGM(Log::ERR, "Can't copy: failed to begin rendering");
+diff --git a/src/output/Monitor.cpp b/src/output/Monitor.cpp
+index e69d8dd..85224a8 100644
+--- a/src/output/Monitor.cpp
++++ b/src/output/Monitor.cpp
+@@ -2711,7 +2711,13 @@ bool CMonitor::needsACopyFB() {
+ }
+ 
+ bool CMonitor::needsUnmodifiedCopy() {
+-    static const auto PKEEP = CConfigValue<Hyprlang::INT>("render:keep_unmodified_copy");
++    static const auto PKEEP           = CConfigValue<Hyprlang::INT>("render:keep_unmodified_copy");
++    static const auto PHDRPASSTHROUGH = CConfigValue<Hyprlang::INT>("misc:screencopy_hdr_passthrough");
++
++    // the unmodified copy maps sdr white to SDR_MAX_LUMINANCE, passthrough wants the frame as displayed
++    if (*PHDRPASSTHROUGH)
++        return false;
++
+     if (*PKEEP == 1)
+         return true;
+ 
+diff --git a/src/output/MonitorResources.cpp b/src/output/MonitorResources.cpp
+index cfef096..fe35397 100644
+--- a/src/output/MonitorResources.cpp
++++ b/src/output/MonitorResources.cpp
+@@ -2,6 +2,7 @@
+ #include "../managers/screenshare/ScreenshareManager.hpp"
+ #include "../helpers/cm/ColorManagement.hpp"
+ #include "../render/Renderer.hpp"
++#include "../config/ConfigValue.hpp"
+ #include <algorithm>
+ #include <format>
+ 
+@@ -138,8 +139,11 @@ SP<Render::ITexture> CMonitorResources::getMirrorTexture() {
+ }
+ 
+ NColorManagement::PImageDescription CMonitorResources::getMirrorTexImageDescription() {
+-    const auto TF = m_imageDescription->value().transferFunction;
+-    if (TF == CM_TRANSFER_FUNCTION_GAMMA22 || TF == CM_TRANSFER_FUNCTION_SRGB)
++    static const auto PHDRPASSTHROUGH = CConfigValue<Config::INTEGER>("misc:screencopy_hdr_passthrough");
++
++    const auto        TF = m_imageDescription->value().transferFunction;
++    // with passthrough non color managed screencopy clients are still converted to sRGB when sharing
++    if (TF == CM_TRANSFER_FUNCTION_GAMMA22 || TF == CM_TRANSFER_FUNCTION_SRGB || *PHDRPASSTHROUGH)
+         return m_imageDescription;
+ 
+     return DEFAULT_SRGB_IMAGE_DESCRIPTION;

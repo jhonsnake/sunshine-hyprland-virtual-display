@@ -201,16 +201,28 @@ With `DISABLE_WHEN_IDLE=true` (default) HEADLESS is **disabled between sessions*
 
 ## HDR (experimental)
 
-With `ENABLE_HDR=true`, a client that asks for HDR gets HEADLESS in 10-bit BT.2020/PQ:
+With `ENABLE_HDR=true`, a client that asks for HDR gets real HDR10 (BT.2020 + PQ, 10-bit) from the virtual display. Tested end to end on Hyprland 0.56.2 + NVIDIA (RTX 5090, driver 615) + Sunshine → Moonlight on macOS.
 
-1. Sunshine must read the captured output's colour — [LizardByte/Sunshine#5615](https://github.com/LizardByte/Sunshine/pull/5615) (not merged yet; build Sunshine with that patch). Stock Sunshine keeps treating wlr captures as SDR.
-2. Hyprland only applies HDR to an output from a `monitorv2` block (`supports_hdr = 1`, `bitdepth = 10`, `cm = hdr`) when the config is (re)loaded — `hyprctl keyword` doesn't do it. So `sunshine-connect.sh` writes that block to `HDR_CONF` (default `~/.cache/sunshine-headless-hdr.conf`) and reloads; add this to your Hyprland config:
+It needs three pieces, because neither Sunshine nor Hyprland does this out of the box yet:
+
+1. **Sunshine that reads the captured output's colour** — [LizardByte/Sunshine#5615](https://github.com/LizardByte/Sunshine/pull/5615) (not merged). Without it Sunshine treats every wlr capture as SDR. Copy of the diff: [`patches/sunshine-pr5615-wlgrab-hdr.diff`](patches/sunshine-pr5615-wlgrab-hdr.diff).
+2. **Hyprland that hands the HDR frame to the capture client** — [`patches/hyprland-0.56.2-screencopy-hdr-passthrough.patch`](patches/hyprland-0.56.2-screencopy-hdr-passthrough.patch) adds `misc:screencopy_hdr_passthrough`. Stock Hyprland 0.56 always converts screencopy to sRGB (`ScreenshareFrame::copyDmabuf/copyShm`), stores the capture mirror of a PQ output as sRGB (`MonitorResources::getMirrorTexImageDescription`), and while a capture is active uses an "unmodified" SDR copy whose white is fixed at 80 nits (`CMonitor::needsUnmodifiedCopy`). With the option on, clients bound to `wp_color_manager_v1` get the output's own image description, unconverted, with your SDR settings applied; everyone else still gets sRGB.
+3. **Hyprland config**:
    ```ini
-   source = ~/.cache/sunshine-headless-hdr.conf
+   source = ~/.cache/sunshine-headless-hdr.conf   # monitorv2 block written by sunshine-connect.sh
+   misc {
+       screencopy_force_8b = false       # default true: 8-bit capture
+       screencopy_hdr_passthrough = true # needs the patch above
+   }
+   render {
+       use_fp16 = 0   # auto (2) composes non-sRGB outputs in a linear FP16 buffer; copying
+                      # the capture from it comes out washed out with bluish blacks
+   }
    ```
-   `sunshine-start.sh` keeps the file present (and empty outside HDR sessions); `sunshine-disconnect.sh` clears it and reloads.
 
-**Status: does not produce correct HDR on Hyprland 0.56 yet.** HEADLESS does switch to `XBGR2101010` / `cm hdr` and the patched Sunshine reports `HDR (Rec. 2020 + SMPTE 2084 PQ)` to Moonlight, but Hyprland hands screencopy clients an SDR (sRGB) image even for an HDR output — a `grim` capture of the HDR HEADLESS has plain sRGB whites at 255, and changing `sdr_max_luminance` has no effect on the stream. The client then decodes sRGB as PQ/BT.2020: blinding brightness, oversaturation, warm whites turning red. Keep `ENABLE_HDR=false` until Hyprland can deliver PQ through screencopy.
+`sunshine-connect.sh` writes a `monitorv2` block for HEADLESS (`supports_hdr = 1`, `bitdepth = 10`, `cm = hdr`, explicit luminances since a virtual output has no EDID) and reloads, because Hyprland only applies HDR to an output from `monitorv2` at config load. Tune the desktop brightness inside HDR with `HDR_SDR_WHITE` (nits of SDR white; default 203, BT.2408).
+
+Things that don't work and why: without the Hyprland patch the client gets sRGB labelled as PQ (blinding, oversaturated, warm whites turn red); with the patch but `use_fp16` on auto the image is washed out; `render:keep_unmodified_copy = 0` alone does not help while a capture is active; `sdrbrightness`/`sdrsaturation` changes need a Hyprland restart (its CM settings cache is not keyed on them).
 
 ## Workspace layout
 
