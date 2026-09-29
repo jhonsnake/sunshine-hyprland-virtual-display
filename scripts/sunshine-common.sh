@@ -25,6 +25,13 @@ STATE_FILE="$HOME/.cache/sunshine-headless.state"
 # from a monitorv2 block at config (re)load, not through hyprctl keyword.
 ENABLE_HDR=false
 HDR_CONF="$HOME/.cache/sunshine-headless-hdr.conf"
+# A virtual output has no EDID, so its HDR luminances (sent to the client as HDR
+# metadata) must be set explicitly, or the client tone-maps against garbage and
+# SDR content shifts colour. SDR white follows ITU-R BT.2408 (203 nits).
+HDR_SDR_WHITE=203
+HDR_MAX_NITS=1000
+HDR_MAX_AVG_NITS=400
+HDR_MIN_NITS=0.005
 
 USER_CONF="$HOME/.config/sunshine/virtual-display.conf"
 # shellcheck source=/dev/null
@@ -209,6 +216,11 @@ monitorv2 {
     supports_wide_color = 1
     supports_hdr = 1
     cm = hdr
+    sdr_min_luminance = $HDR_MIN_NITS
+    sdr_max_luminance = $HDR_SDR_WHITE
+    min_luminance = $HDR_MIN_NITS
+    max_luminance = $HDR_MAX_NITS
+    max_avg_luminance = $HDR_MAX_AVG_NITS
 }
 EOF
 }

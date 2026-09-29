@@ -210,7 +210,7 @@ With `ENABLE_HDR=true`, a client that asks for HDR gets HEADLESS in 10-bit BT.20
    ```
    `sunshine-start.sh` keeps the file present (and empty outside HDR sessions); `sunshine-disconnect.sh` clears it and reloads.
 
-Tested on Hyprland 0.56 with NVIDIA: HEADLESS reports `XBGR2101010` and `cm hdr`. End-to-end HDR in Moonlight depends on the Sunshine patch above.
+**Status: does not produce correct HDR on Hyprland 0.56 yet.** HEADLESS does switch to `XBGR2101010` / `cm hdr` and the patched Sunshine reports `HDR (Rec. 2020 + SMPTE 2084 PQ)` to Moonlight, but Hyprland hands screencopy clients an SDR (sRGB) image even for an HDR output — a `grim` capture of the HDR HEADLESS has plain sRGB whites at 255, and changing `sdr_max_luminance` has no effect on the stream. The client then decodes sRGB as PQ/BT.2020: blinding brightness, oversaturation, warm whites turning red. Keep `ENABLE_HDR=false` until Hyprland can deliver PQ through screencopy.
 
 ## Workspace layout
 
