@@ -12,7 +12,7 @@
 # scanout buffer is stale. Forcing dpms-on globally and bouncing focus to
 # the headless monitor and back triggers Hyprland to push a fresh frame.
 
-LOG="$HOME/.local/share/sunshine-headless.log"
+. "$HOME/.local/bin/sunshine-common.sh"
 
 # Give Hyprland a beat to finish reattaching outputs after resume.
 sleep 1
@@ -23,18 +23,17 @@ hyprctl dispatch dpms on >> "$LOG" 2>&1
 # 2. Locate the persistent HEADLESS monitor. If missing, nothing else to do
 #    here: sunshine-connect.sh's self-heal path will recreate it on next
 #    client connect.
-HEADLESS=$(hyprctl monitors -j | python3 -c \
-    "import sys,json; ms=[m['name'] for m in json.load(sys.stdin) if 'HEADLESS' in m['name']]; print(ms[0] if ms else '')")
+HEADLESS=$(headless_name)
 
 if [ -z "$HEADLESS" ]; then
-    echo "$(date -Iseconds) after_sleep: no HEADLESS present (connect.sh will recreate)" >> "$LOG"
+    log "after_sleep: no HEADLESS present (connect.sh will recreate)"
     exit 0
 fi
 
-# 3. Repaint kick — bounce focus onto HEADLESS and back to DP-1. Cheap and
-#    forces Hyprland to commit a new frame to the headless scanout.
-hyprctl dispatch focusmonitor "$HEADLESS" >> "$LOG" 2>&1
+# 3. Repaint kick — bounce focus onto HEADLESS and back. Cheap and forces
+#    Hyprland to commit a new frame to the headless scanout.
+focus_monitor "$HEADLESS"
 sleep 0.2
-hyprctl dispatch focusmonitor DP-1 >> "$LOG" 2>&1
+focus_monitor "$PHYSICAL_MONITOR"
 
-echo "$(date -Iseconds) after_sleep: dpms-on + repaint kick on $HEADLESS" >> "$LOG"
+log "after_sleep: dpms-on + repaint kick on $HEADLESS"

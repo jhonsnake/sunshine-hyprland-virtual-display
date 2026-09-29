@@ -15,6 +15,8 @@ Replicates **Apollo**-style virtual display behavior on Linux: a persistent head
 | AMD/Intel GPU | ✅ (change `encoder=nvenc` to `encoder=vaapi`) |
 | Windows open on the remote client, not the physical monitor | ✅ |
 | Physical monitor turns off during remote session | ✅ |
+| Virtual display matches the client's resolution & refresh rate (Apollo-style) | ✅ |
+| Sunshine managed by a systemd user service | ✅ (optional, `SUNSHINE_UNIT`) |
 | Simultaneous remote access without disturbing your physical session | ✅ |
 | Local windows never accidentally open on the invisible virtual display | ✅ (workspace pinning) |
 | X11 / other compositors | ❌ (wlroots/Hyprland only) |
@@ -39,7 +41,7 @@ Replicates **Apollo**-style virtual display behavior on Linux: a persistent head
 └──────────────────────────────────────────────────────────┘
 ```
 
-**Client connects:** `sunshine-connect.sh` migrates workspaces 1-10 from DP-1 onto HEADLESS-N, turns off the physical monitor, and pauses hypridle.
+**Client connects:** `sunshine-connect.sh` resizes HEADLESS-N to the client's resolution and refresh rate (e.g. `2556x1179@60` for an iPhone, `3840x2160@120` for a 4K TV), migrates workspaces 1-10 from the physical monitor onto it, turns off the physical monitor, and pauses hypridle.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -56,7 +58,9 @@ Replicates **Apollo**-style virtual display behavior on Linux: a persistent head
    Moonlight / Artemis (Android, iOS, Windows, TV)
 ```
 
-**Client disconnects:** `sunshine-disconnect.sh` migrates workspaces back to DP-1, turns it on, resumes hypridle. The headless monitor stays put — ready for the next connection without requiring Sunshine to re-read its config.
+**Client disconnects:** `sunshine-disconnect.sh` migrates workspaces back to the physical monitor, turns it on, resumes hypridle and resets HEADLESS-N to its default mode. The headless monitor stays put — ready for the next connection without requiring Sunshine to re-read its config.
+
+While a client is connected the scripts keep a flag file at `~/.cache/sunshine-streaming`, so other tools (wallpapers, widgets, idle daemons) can react to remote sessions.
 
 ### Why persistent headless instead of on-demand
 
@@ -118,8 +122,10 @@ chmod +x ~/.local/bin/sunshine-*.sh
 
 ```bash
 mkdir -p ~/.config/sunshine
-cp .config/sunshine/sunshine.conf ~/.config/sunshine/
+sed "s|~/.local/bin/|$HOME/.local/bin/|g" .config/sunshine/sunshine.conf > ~/.config/sunshine/sunshine.conf
 ```
+
+> Sunshine runs `global_prep_cmd` without a shell, so the paths must be absolute (the `sed` above expands `~`).
 
 > For AMD/Intel change `encoder=nvenc` to `encoder=vaapi`
 
@@ -152,7 +158,7 @@ sudo ufw allow 48002/udp comment "Sunshine Mic"
 2. Open **`https://localhost:47990`** in your browser and create a username + password
 3. In **Moonlight** or **Artemis** add your local IP as a new host
 4. On first connect a 4-digit PIN appears — enter it in the **Pin** tab of the web panel
-5. Done — your workspaces move from DP-1 to the headless monitor and stream to the remote client
+5. Done — the headless monitor takes the client's resolution, your workspaces move onto it and stream to the remote client
 
 ---
 
@@ -162,32 +168,66 @@ sudo ufw allow 48002/udp comment "Sunshine Mic"
 sunshine-hyprland-virtual-display/
 ├── scripts/
 │   ├── install.sh               # Automatic installer
+│   ├── sunshine-common.sh       # Shared settings/helpers (Lua vs classic Hyprland config, monitor detection)
 │   ├── sunshine-start.sh        # Creates HEADLESS, pins workspaces, writes output_name, launches Sunshine
-│   ├── sunshine-connect.sh      # On connect: migrates ws 1-10 -> HEADLESS, turns off DP-1, pauses hypridle (self-heals if HEADLESS missing)
-│   ├── sunshine-disconnect.sh   # On disconnect: restores ws, turns on DP-1, resumes hypridle
+│   ├── sunshine-connect.sh      # On connect: resizes HEADLESS to the client, migrates ws 1-10, turns off the physical monitor (self-heals)
+│   ├── sunshine-reapply.sh      # After hyprctl reload: puts HEADLESS back off-screen, re-applies session state
+│   ├── sunshine-disconnect.sh   # On disconnect: restores ws + physical monitor, resets HEADLESS mode
 │   └── sunshine-after-sleep.sh  # Runs from hypridle after_sleep_cmd — fixes black screen after S3 resume
 └── .config/
     └── sunshine/
-        └── sunshine.conf        # Sunshine config (capture, encoder, global_prep_cmd, output_name placeholder)
+        ├── sunshine.conf        # Sunshine config (capture, encoder, global_prep_cmd, output_name placeholder)
+        └── virtual-display.conf # Optional overrides for the scripts (all commented out)
 ```
 
 ---
 
-## Virtual display resolution
+## Configuration
 
-Default is `1920x1080@60`. To change it, edit `sunshine-start.sh`:
+All scripts source `~/.local/bin/sunshine-common.sh`, which reads optional overrides from `~/.config/sunshine/virtual-display.conf` (the installer drops a fully commented copy there):
 
-```bash
-hyprctl keyword monitor "$HEADLESS,1920x1080@60,9999x0,1"
-#                                  ^^^^^^^^^^^^ change this
-```
+| Option | Default | What it does |
+|---|---|---|
+| `PHYSICAL_MONITOR` | first non-HEADLESS monitor | Monitor that gets turned off and whose workspaces move to HEADLESS |
+| `MATCH_CLIENT_RESOLUTION` | `true` | Resize HEADLESS to `SUNSHINE_CLIENT_WIDTH`x`SUNSHINE_CLIENT_HEIGHT`@`SUNSHINE_CLIENT_FPS` on connect |
+| `HEADLESS_SCALE` | `auto` | Scale for the client mode: `1.5` for >=2160p, `1.25` for >=1440p, `1` otherwise — or a fixed number |
+| `HEADLESS_DEFAULT_MODE` | `1920x1080@60` | Mode between sessions (and if the client doesn't report one) |
+| `REMOTE_WORKSPACE` | `11` | Workspace that lives on HEADLESS between sessions |
+| `SUNSHINE_UNIT` | empty | systemd `--user` unit to (re)start instead of `exec sunshine`, e.g. `app-dev.lizardbyte.app.Sunshine.service` |
 
----
+Resizing keeps the monitor's name, so Sunshine's cached `output_name` stays valid — no restart needed between clients with different resolutions.
+
+With `DISABLE_WHEN_IDLE=true` (default) HEADLESS is **disabled between sessions**: apps, games and new windows only see your physical monitor, so nothing can end up on an invisible screen. A disabled monitor keeps its name and Sunshine lists the outputs again on every session start (right after the `do` command), so `sunshine-connect.sh` simply re-enables it first.
+
+## HDR (experimental)
+
+With `ENABLE_HDR=true`, a client that asks for HDR gets real HDR10 (BT.2020 + PQ, 10-bit) from the virtual display. Tested end to end on Hyprland 0.56.2 + NVIDIA (RTX 5090, driver 615) + Sunshine → Moonlight on macOS.
+
+It needs three pieces, because neither Sunshine nor Hyprland does this out of the box yet:
+
+1. **Sunshine that reads the captured output's colour** — [LizardByte/Sunshine#5615](https://github.com/LizardByte/Sunshine/pull/5615) (not merged). Without it Sunshine treats every wlr capture as SDR. Copy of the diff: [`patches/sunshine-pr5615-wlgrab-hdr.diff`](patches/sunshine-pr5615-wlgrab-hdr.diff).
+2. **Hyprland that hands the HDR frame to the capture client** — [`patches/hyprland-0.56.2-screencopy-hdr-passthrough.patch`](patches/hyprland-0.56.2-screencopy-hdr-passthrough.patch) adds `misc:screencopy_hdr_passthrough`. Stock Hyprland 0.56 always converts screencopy to sRGB (`ScreenshareFrame::copyDmabuf/copyShm`), stores the capture mirror of a PQ output as sRGB (`MonitorResources::getMirrorTexImageDescription`), and while a capture is active uses an "unmodified" SDR copy whose white is fixed at 80 nits (`CMonitor::needsUnmodifiedCopy`). With the option on, clients bound to `wp_color_manager_v1` get the output's own image description, unconverted, with your SDR settings applied; everyone else still gets sRGB.
+3. **Hyprland config**:
+   ```ini
+   source = ~/.cache/sunshine-headless-hdr.conf   # monitorv2 block written by sunshine-connect.sh
+   misc {
+       screencopy_force_8b = false       # default true: 8-bit capture
+       screencopy_hdr_passthrough = true # needs the patch above
+   }
+   render {
+       use_fp16 = 0   # auto (2) composes non-sRGB outputs in a linear FP16 buffer; copying
+                      # the capture from it comes out washed out with bluish blacks
+   }
+   ```
+
+`sunshine-connect.sh` writes a `monitorv2` block for HEADLESS (`supports_hdr = 1`, `bitdepth = 10`, `cm = hdr`, explicit luminances since a virtual output has no EDID) and reloads, because Hyprland only applies HDR to an output from `monitorv2` at config load. Tune the desktop brightness inside HDR with `HDR_SDR_WHITE` (nits of SDR white; default 203, BT.2408).
+
+Things that don't work and why: without the Hyprland patch the client gets sRGB labelled as PQ (blinding, oversaturated, warm whites turn red); with the patch but `use_fp16` on auto the image is washed out; `render:keep_unmodified_copy = 0` alone does not help while a capture is active; `sdrbrightness`/`sdrsaturation` changes need a Hyprland restart (its CM settings cache is not keyed on them).
 
 ## Workspace layout
 
 `sunshine-start.sh` pins:
-- **Workspaces 1-10** → `DP-1` (your physical monitor)
+- **Workspaces 1-10** → your physical monitor (`PHYSICAL_MONITOR`)
 - **Workspace 11** → `HEADLESS-N` (dedicated "remote" workspace, persistent)
 
 If you use workspace numbers above 10 locally, edit the `for ws in 1 2 3 4 5 6 7 8 9 10;` loop in `sunshine-start.sh` to include them, and change `11` to your "remote" workspace number.
@@ -198,6 +238,12 @@ If you use workspace numbers above 10 locally, edit the `for ws in 1 2 3 4 5 6 7
 
 **Client sees the physical monitor instead of the headless one (or a black frame)**
 Sunshine cached the wrong `output_name`. This happens if Sunshine was already running when the headless was created. Fix: `pkill sunshine` then re-run `~/.local/bin/sunshine-start.sh &` (or log out and back in). Verify with: `grep output_name ~/.config/sunshine/sunshine.conf` matches the active HEADLESS in `hyprctl monitors`.
+
+**Moonlight says "Failed to start the specified application"**
+Sunshine couldn't run the `global_prep_cmd` scripts. It executes them without a shell, so `~` is not expanded — use absolute paths in `~/.config/sunshine/sunshine.conf` (e.g. `/home/you/.local/bin/sunshine-connect.sh`). The installer does this for you; check `journalctl --user -u <sunshine unit>` or Sunshine's log for `Unable to find executable`.
+
+**Cursor or clicks land on the physical monitor / screen wakes up during a session**
+Moonlight on macOS/iPad (absolute mouse) and touch clients send absolute coordinates, which Hyprland maps over the whole layout — including the physical monitor. `sunshine-connect.sh` pins Sunshine's virtual devices (`SUNSHINE_INPUT_DEVICES`, see `hyprctl devices`) to HEADLESS and turns off `misc:mouse_move_enables_dpms` / `key_press_enables_dpms` for the session, restoring them on disconnect. Older Sunshine builds use other device names — adjust the list in `virtual-display.conf`.
 
 **Client sees an empty desktop (no windows)**
 `sunshine-connect.sh` didn't migrate workspaces. Check `~/.local/share/sunshine-headless.log` for errors and confirm `global_prep_cmd` is set in `sunshine.conf`.
@@ -213,8 +259,20 @@ Then restart hypridle (`pkill -x hypridle && setsid nohup hypridle &`). Verify w
 
 As a second line of defense, `sunshine-connect.sh` is self-healing: if HEADLESS is gone at connect time (rare — usually means Hyprland tore it down on resume) it recreates the monitor, rewrites `output_name`, and detach-restarts Sunshine. The client briefly disconnects and reconnects cleanly.
 
+**Everything froze after a failed connection (physical monitor off, windows on the invisible screen)**
+If Sunshine crashes mid-session (e.g. `Fatal: Hang detected! Session failed to terminate`), its "undo" command never runs. With a systemd unit the installer adds an `ExecStopPost` drop-in that runs `sunshine-disconnect.sh` whenever Sunshine stops or crashes while a client was connected. As a manual escape hatch, bind it to a key:
+```ini
+bindl = CTRL SUPER ALT, Home, exec, ~/.local/bin/sunshine-disconnect.sh
+```
+
+**The mouse can leave the physical monitor onto an invisible screen after `hyprctl reload`**
+A reload drops every runtime `hyprctl keyword`, so HEADLESS falls back to your default monitor rule and gets placed next to the physical one. `sunshine-reapply.sh` restores its position (and, mid-session, the client mode and input pinning); hook it with a plain `exec =` so it runs on every reload:
+```ini
+exec = ~/.local/bin/sunshine-reapply.sh
+```
+
 **Physical monitor stays off after disconnecting**
-Run manually: `hyprctl dispatch dpms on DP-1`
+Run manually: `hyprctl dispatch dpms on <your monitor>` (see `hyprctl monitors`)
 
 **Cannot connect from the local network**
 Check firewall with `sudo ufw status | grep -i sunshine`. If nothing shows, run step 4 of the manual setup.
