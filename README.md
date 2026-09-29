@@ -171,6 +171,7 @@ sunshine-hyprland-virtual-display/
 │   ├── sunshine-common.sh       # Shared settings/helpers (Lua vs classic Hyprland config, monitor detection)
 │   ├── sunshine-start.sh        # Creates HEADLESS, pins workspaces, writes output_name, launches Sunshine
 │   ├── sunshine-connect.sh      # On connect: resizes HEADLESS to the client, migrates ws 1-10, turns off the physical monitor (self-heals)
+│   ├── sunshine-reapply.sh      # After hyprctl reload: puts HEADLESS back off-screen, re-applies session state
 │   ├── sunshine-disconnect.sh   # On disconnect: restores ws + physical monitor, resets HEADLESS mode
 │   └── sunshine-after-sleep.sh  # Runs from hypridle after_sleep_cmd — fixes black screen after S3 resume
 └── .config/
@@ -230,6 +231,18 @@ general {
 Then restart hypridle (`pkill -x hypridle && setsid nohup hypridle &`). Verify with `grep after_sleep ~/.local/share/sunshine-headless.log` after the next resume.
 
 As a second line of defense, `sunshine-connect.sh` is self-healing: if HEADLESS is gone at connect time (rare — usually means Hyprland tore it down on resume) it recreates the monitor, rewrites `output_name`, and detach-restarts Sunshine. The client briefly disconnects and reconnects cleanly.
+
+**Everything froze after a failed connection (physical monitor off, windows on the invisible screen)**
+If Sunshine crashes mid-session (e.g. `Fatal: Hang detected! Session failed to terminate`), its "undo" command never runs. With a systemd unit the installer adds an `ExecStopPost` drop-in that runs `sunshine-disconnect.sh` whenever Sunshine stops or crashes while a client was connected. As a manual escape hatch, bind it to a key:
+```ini
+bindl = CTRL SUPER ALT, Home, exec, ~/.local/bin/sunshine-disconnect.sh
+```
+
+**The mouse can leave the physical monitor onto an invisible screen after `hyprctl reload`**
+A reload drops every runtime `hyprctl keyword`, so HEADLESS falls back to your default monitor rule and gets placed next to the physical one. `sunshine-reapply.sh` restores its position (and, mid-session, the client mode and input pinning); hook it with a plain `exec =` so it runs on every reload:
+```ini
+exec = ~/.local/bin/sunshine-reapply.sh
+```
 
 **Physical monitor stays off after disconnecting**
 Run manually: `hyprctl dispatch dpms on <your monitor>` (see `hyprctl monitors`)

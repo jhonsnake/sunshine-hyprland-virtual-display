@@ -53,6 +53,7 @@ if [ "$MATCH_CLIENT_RESOLUTION" = true ] && [ -n "$SUNSHINE_CLIENT_WIDTH" ] && [
     MODE="${SUNSHINE_CLIENT_WIDTH}x${SUNSHINE_CLIENT_HEIGHT}@${SUNSHINE_CLIENT_FPS:-60}"
     SCALE=$(scale_for_height "$SUNSHINE_CLIENT_HEIGHT")
     set_monitor "$HEADLESS" "$MODE" "$HEADLESS_POSITION" "$SCALE"
+    printf 'CLIENT_MODE=%s\nCLIENT_SCALE=%s\n' "$MODE" "$SCALE" >> "$STATE_FILE"
     log "HEADLESS set to $MODE scale $SCALE for client '${SUNSHINE_CLIENT_NAME:-unknown}'"
     sleep 0.3
 fi

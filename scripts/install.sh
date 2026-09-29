@@ -29,12 +29,14 @@ info "Installing scripts..."
 mkdir -p ~/.local/bin
 cp scripts/sunshine-common.sh \
    scripts/sunshine-start.sh \
+   scripts/sunshine-reapply.sh \
    scripts/sunshine-connect.sh \
    scripts/sunshine-disconnect.sh \
    scripts/sunshine-after-sleep.sh \
    ~/.local/bin/
 chmod +x ~/.local/bin/sunshine-common.sh \
          ~/.local/bin/sunshine-start.sh \
+         ~/.local/bin/sunshine-reapply.sh \
          ~/.local/bin/sunshine-connect.sh \
          ~/.local/bin/sunshine-disconnect.sh \
          ~/.local/bin/sunshine-after-sleep.sh
@@ -88,12 +90,29 @@ if [ -n "$TARGET_CONF" ]; then
         echo "" >> "$TARGET_CONF"
         echo "# Sunshine remote desktop" >> "$TARGET_CONF"
         echo "exec-once = ~/.local/bin/sunshine-start.sh" >> "$TARGET_CONF"
+        echo "exec = ~/.local/bin/sunshine-reapply.sh  # re-apply after hyprctl reload" >> "$TARGET_CONF"
     else
         warn "sunshine-start.sh is already in $TARGET_CONF"
     fi
 else
     warn "hyprland.conf not found — add this line manually:"
     warn "  exec-once = ~/.local/bin/sunshine-start.sh"
+fi
+
+# If Sunshine runs as a systemd user unit, restore the physical monitor whenever it
+# stops or crashes mid-session (the "undo" prep command never runs in that case).
+if [ -n "$SUNSHINE_UNIT" ] || systemctl --user cat app-dev.lizardbyte.app.Sunshine.service &>/dev/null; then
+    UNIT="${SUNSHINE_UNIT:-app-dev.lizardbyte.app.Sunshine.service}"
+    DROPIN="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT.d/virtual-display.conf"
+    if [ ! -f "$DROPIN" ]; then
+        info "Adding crash recovery drop-in for $UNIT..."
+        mkdir -p "$(dirname "$DROPIN")"
+        cat > "$DROPIN" <<'DROPIN_EOF'
+[Service]
+ExecStopPost=-/bin/sh -c '[ -e "%h/.cache/sunshine-streaming" ] && exec "%h/.local/bin/sunshine-disconnect.sh" || true'
+DROPIN_EOF
+        systemctl --user daemon-reload
+    fi
 fi
 
 # Wire after_sleep_cmd into hypridle if it's installed — fixes the

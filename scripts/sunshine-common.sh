@@ -120,10 +120,10 @@ set_option() {
 
 # Remote mouse/keyboard input must not wake the (DPMS-off) physical monitor.
 suspend_dpms_wake() {
-    [ -f "$STATE_FILE" ] || {
+    grep -q '^MOUSE_WAKE=' "$STATE_FILE" 2>/dev/null || {
         echo "MOUSE_WAKE=$(get_option misc:mouse_move_enables_dpms)"
         echo "KEY_WAKE=$(get_option misc:key_press_enables_dpms)"
-    } > "$STATE_FILE"
+    } >> "$STATE_FILE"
     set_option misc:mouse_move_enables_dpms false
     set_option misc:key_press_enables_dpms false
 }
