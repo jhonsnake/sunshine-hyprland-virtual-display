@@ -54,9 +54,25 @@ set_dpms on "$HEADLESS"
 # --- 4. match the client's resolution ----------------------------------------
 # Sunshine exports the client's requested mode to prep commands. Resizing the
 # existing HEADLESS keeps its name, so Sunshine's cached output_name stays valid.
+MODE="$HEADLESS_DEFAULT_MODE"
+SCALE=1
 if [ "$MATCH_CLIENT_RESOLUTION" = true ] && [ -n "$SUNSHINE_CLIENT_WIDTH" ] && [ -n "$SUNSHINE_CLIENT_HEIGHT" ]; then
     MODE="${SUNSHINE_CLIENT_WIDTH}x${SUNSHINE_CLIENT_HEIGHT}@${SUNSHINE_CLIENT_FPS:-60}"
     SCALE=$(scale_for_height "$SUNSHINE_CLIENT_HEIGHT")
+fi
+
+if client_wants_hdr; then
+    # Experimental: HDR only reaches an output through a monitorv2 block at config
+    # load, so write it and reload. The reload runs sunshine-reapply.sh; save the
+    # DPMS wake options and raise the streaming flag first so it keeps the session.
+    printf 'CLIENT_MODE=%s\nCLIENT_SCALE=%s\nHDR=1\n' "$MODE" "$SCALE" >> "$STATE_FILE"
+    suspend_dpms_wake
+    touch "$STREAMING_FLAG"
+    write_hdr_conf "$HEADLESS" "$MODE" "$SCALE"
+    hyprctl reload >> "$LOG" 2>&1
+    sleep 1
+    log "HEADLESS set to $MODE scale $SCALE in HDR for client '${SUNSHINE_CLIENT_NAME:-unknown}'"
+elif [ "$MODE" != "$HEADLESS_DEFAULT_MODE" ] || [ "$SCALE" != 1 ]; then
     set_monitor "$HEADLESS" "$MODE" "$HEADLESS_POSITION" "$SCALE"
     printf 'CLIENT_MODE=%s\nCLIENT_SCALE=%s\n' "$MODE" "$SCALE" >> "$STATE_FILE"
     log "HEADLESS set to $MODE scale $SCALE for client '${SUNSHINE_CLIENT_NAME:-unknown}'"

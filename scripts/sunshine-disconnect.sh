@@ -30,7 +30,16 @@ pin_workspaces "$PHYSICAL_MONITOR"
 if [ -n "$HEADLESS" ]; then
     move_workspaces "$HEADLESS" "$PHYSICAL_MONITOR"
     # --- 4. hide HEADLESS until the next session ------------------------------
-    idle_headless "$HEADLESS"
+    if hdr_active; then
+        # Drop the HDR monitorv2 block; the reload runs sunshine-reapply.sh, which
+        # (with the streaming flag gone) disables HEADLESS and re-pins workspaces.
+        write_hdr_conf
+        rm -f "$STREAMING_FLAG"
+        hyprctl reload >> "$LOG" 2>&1
+        sleep 1
+    else
+        idle_headless "$HEADLESS"
+    fi
 fi
 
 focus_monitor "$PHYSICAL_MONITOR"

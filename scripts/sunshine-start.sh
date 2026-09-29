@@ -19,6 +19,9 @@ for name in $(monitor_names headless); do
     hyprctl output remove "$name" >> "$LOG" 2>&1 && sleep 0.3
 done
 rm -f "$STREAMING_FLAG" "$STATE_FILE"
+# No session yet: make sure the sourced HDR block exists and is empty (also clears a
+# block left behind if Hyprland or Sunshine died during an HDR session).
+write_hdr_conf
 
 # --- Create the persistent HEADLESS monitor ---------------------------------
 HEADLESS=$(create_headless)

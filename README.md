@@ -199,6 +199,19 @@ Resizing keeps the monitor's name, so Sunshine's cached `output_name` stays vali
 
 With `DISABLE_WHEN_IDLE=true` (default) HEADLESS is **disabled between sessions**: apps, games and new windows only see your physical monitor, so nothing can end up on an invisible screen. A disabled monitor keeps its name and Sunshine lists the outputs again on every session start (right after the `do` command), so `sunshine-connect.sh` simply re-enables it first.
 
+## HDR (experimental)
+
+With `ENABLE_HDR=true`, a client that asks for HDR gets HEADLESS in 10-bit BT.2020/PQ:
+
+1. Sunshine must read the captured output's colour — [LizardByte/Sunshine#5615](https://github.com/LizardByte/Sunshine/pull/5615) (not merged yet; build Sunshine with that patch). Stock Sunshine keeps treating wlr captures as SDR.
+2. Hyprland only applies HDR to an output from a `monitorv2` block (`supports_hdr = 1`, `bitdepth = 10`, `cm = hdr`) when the config is (re)loaded — `hyprctl keyword` doesn't do it. So `sunshine-connect.sh` writes that block to `HDR_CONF` (default `~/.cache/sunshine-headless-hdr.conf`) and reloads; add this to your Hyprland config:
+   ```ini
+   source = ~/.cache/sunshine-headless-hdr.conf
+   ```
+   `sunshine-start.sh` keeps the file present (and empty outside HDR sessions); `sunshine-disconnect.sh` clears it and reloads.
+
+Tested on Hyprland 0.56 with NVIDIA: HEADLESS reports `XBGR2101010` and `cm hdr`. End-to-end HDR in Moonlight depends on the Sunshine patch above.
+
 ## Workspace layout
 
 `sunshine-start.sh` pins:

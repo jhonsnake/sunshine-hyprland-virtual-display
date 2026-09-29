@@ -19,6 +19,12 @@ STREAMING_FLAG="$HOME/.cache/sunshine-streaming"  # exists while a client is con
 # input over the whole layout, so a Mac/iPad/phone client would click on the physical monitor.
 SUNSHINE_INPUT_DEVICES=("libvirtualhid-mouse-(absolute)" "libvirtualhid-touchscreen" "libvirtualhid-pen-tablet")
 STATE_FILE="$HOME/.cache/sunshine-headless.state"
+# Experimental HDR: when the client asks for HDR, HEADLESS is switched to 10-bit BT.2020/PQ.
+# Needs a Sunshine that reads the output's colour (LizardByte/Sunshine PR #5615) and
+# `source = <HDR_CONF>` in your Hyprland config: Hyprland only applies HDR to an output
+# from a monitorv2 block at config (re)load, not through hyprctl keyword.
+ENABLE_HDR=false
+HDR_CONF="$HOME/.cache/sunshine-headless-hdr.conf"
 
 USER_CONF="$HOME/.config/sunshine/virtual-display.conf"
 # shellcheck source=/dev/null
@@ -176,6 +182,35 @@ scale_for_height() {
     else
         echo 1
     fi
+}
+
+# --- Experimental HDR ----------------------------------------------------------
+client_wants_hdr() {
+    [ "$ENABLE_HDR" = true ] && [[ "${SUNSHINE_CLIENT_HDR:-}" =~ ^(1|[Tt]rue|TRUE)$ ]]
+}
+
+hdr_active() { grep -q '^monitorv2' "$HDR_CONF" 2>/dev/null; }
+
+# Writes (or clears, with no arguments) the monitorv2 block Hyprland sources for HEADLESS.
+write_hdr_conf() { # [name mode scale]
+    mkdir -p "$(dirname "$HDR_CONF")"
+    if [ -z "${1:-}" ]; then
+        echo "# Managed by sunshine-hyprland-virtual-display: no HDR session active." > "$HDR_CONF"
+        return
+    fi
+    cat > "$HDR_CONF" <<EOF
+# Managed by sunshine-hyprland-virtual-display: HDR session active.
+monitorv2 {
+    output = $1
+    mode = $2
+    position = $HEADLESS_POSITION
+    scale = $3
+    bitdepth = 10
+    supports_wide_color = 1
+    supports_hdr = 1
+    cm = hdr
+}
+EOF
 }
 
 # Creates HEADLESS at the default mode and binds the remote workspace to it.

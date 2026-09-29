@@ -18,7 +18,9 @@ HEADLESS=$(headless_name)
 workspace_rule "$REMOTE_WORKSPACE" "$HEADLESS" true false
 
 if [ -e "$STREAMING_FLAG" ]; then
-    set_monitor "$HEADLESS" "${CLIENT_MODE:-$HEADLESS_DEFAULT_MODE}" "$HEADLESS_POSITION" "${CLIENT_SCALE:-1}"
+    # In an HDR session the mode comes from the sourced monitorv2 block; a classic
+    # monitor rule here would override it and drop the output back to SDR.
+    hdr_active || set_monitor "$HEADLESS" "${CLIENT_MODE:-$HEADLESS_DEFAULT_MODE}" "$HEADLESS_POSITION" "${CLIENT_SCALE:-1}"
     pin_workspaces "$HEADLESS"
     bind_input_devices "$HEADLESS"
     set_option misc:mouse_move_enables_dpms false
