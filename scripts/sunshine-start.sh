@@ -18,7 +18,7 @@
 for name in $(monitor_names headless); do
     hyprctl output remove "$name" >> "$LOG" 2>&1 && sleep 0.3
 done
-rm -f "$STREAMING_FLAG"
+rm -f "$STREAMING_FLAG" "$STATE_FILE"
 
 # --- Create the persistent HEADLESS monitor ---------------------------------
 HEADLESS=$(create_headless)

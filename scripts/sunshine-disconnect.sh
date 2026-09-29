@@ -18,6 +18,8 @@ pkill -CONT -x hypridle 2>/dev/null
 HEADLESS=$(headless_name)
 
 # --- 2. turn the physical monitor back on -----------------------------------
+restore_dpms_wake
+bind_input_devices ""
 set_dpms on "$PHYSICAL_MONITOR"
 
 # --- 3. re-pin workspaces 1-10 back to the physical monitor, then migrate ---

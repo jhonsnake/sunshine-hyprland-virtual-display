@@ -14,6 +14,10 @@ MATCH_CLIENT_RESOLUTION=true   # resize HEADLESS to the client's width/height/fp
 REMOTE_WORKSPACE=11            # workspace that lives on HEADLESS between sessions
 SUNSHINE_UNIT=""               # systemd --user unit to (re)start instead of exec'ing sunshine
 STREAMING_FLAG="$HOME/.cache/sunshine-streaming"  # exists while a client is connected
+# Sunshine's virtual absolute-input devices (see `hyprctl devices`). Hyprland maps absolute
+# input over the whole layout, so a Mac/iPad/phone client would click on the physical monitor.
+SUNSHINE_INPUT_DEVICES=("libvirtualhid-mouse-(absolute)" "libvirtualhid-touchscreen" "libvirtualhid-pen-tablet")
+STATE_FILE="$HOME/.cache/sunshine-headless.state"
 
 USER_CONF="$HOME/.config/sunshine/virtual-display.conf"
 # shellcheck source=/dev/null
@@ -94,6 +98,43 @@ focus_monitor() {
     else
         hyprctl dispatch focusmonitor "$1" >/dev/null
     fi
+}
+
+# Pins (or unpins, with "") Sunshine's absolute input devices to a monitor.
+bind_input_devices() {
+    local d
+    for d in "${SUNSHINE_INPUT_DEVICES[@]}"; do
+        # TODO: Lua config provider equivalent (not verified yet)
+        [ $HYPR_LUA = 1 ] && { log "WARNING: input device pinning not implemented for the Lua config provider"; return; }
+        hyprctl keyword "device[$d]:output" "$1" >> "$LOG" 2>&1
+    done
+}
+
+get_option() { hyprctl getoption "$1" -j | python3 -c "import sys,json; print(json.load(sys.stdin).get('int', 1))"; }
+
+set_option() {
+    # TODO: Lua config provider equivalent (not verified yet)
+    [ $HYPR_LUA = 1 ] && { log "WARNING: cannot set $1 with the Lua config provider"; return; }
+    hyprctl keyword "$1" "$2" >> "$LOG" 2>&1
+}
+
+# Remote mouse/keyboard input must not wake the (DPMS-off) physical monitor.
+suspend_dpms_wake() {
+    [ -f "$STATE_FILE" ] || {
+        echo "MOUSE_WAKE=$(get_option misc:mouse_move_enables_dpms)"
+        echo "KEY_WAKE=$(get_option misc:key_press_enables_dpms)"
+    } > "$STATE_FILE"
+    set_option misc:mouse_move_enables_dpms false
+    set_option misc:key_press_enables_dpms false
+}
+
+restore_dpms_wake() {
+    local MOUSE_WAKE=1 KEY_WAKE=1
+    # shellcheck source=/dev/null
+    [ -f "$STATE_FILE" ] && . "$STATE_FILE"
+    set_option misc:mouse_move_enables_dpms "$([ "$MOUSE_WAKE" = 1 ] && echo true || echo false)"
+    set_option misc:key_press_enables_dpms "$([ "$KEY_WAKE" = 1 ] && echo true || echo false)"
+    rm -f "$STATE_FILE"
 }
 
 scale_for_height() {

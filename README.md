@@ -214,6 +214,9 @@ Sunshine cached the wrong `output_name`. This happens if Sunshine was already ru
 **Moonlight says "Failed to start the specified application"**
 Sunshine couldn't run the `global_prep_cmd` scripts. It executes them without a shell, so `~` is not expanded — use absolute paths in `~/.config/sunshine/sunshine.conf` (e.g. `/home/you/.local/bin/sunshine-connect.sh`). The installer does this for you; check `journalctl --user -u <sunshine unit>` or Sunshine's log for `Unable to find executable`.
 
+**Cursor or clicks land on the physical monitor / screen wakes up during a session**
+Moonlight on macOS/iPad (absolute mouse) and touch clients send absolute coordinates, which Hyprland maps over the whole layout — including the physical monitor. `sunshine-connect.sh` pins Sunshine's virtual devices (`SUNSHINE_INPUT_DEVICES`, see `hyprctl devices`) to HEADLESS and turns off `misc:mouse_move_enables_dpms` / `key_press_enables_dpms` for the session, restoring them on disconnect. Older Sunshine builds use other device names — adjust the list in `virtual-display.conf`.
+
 **Client sees an empty desktop (no windows)**
 `sunshine-connect.sh` didn't migrate workspaces. Check `~/.local/share/sunshine-headless.log` for errors and confirm `global_prep_cmd` is set in `sunshine.conf`.
 

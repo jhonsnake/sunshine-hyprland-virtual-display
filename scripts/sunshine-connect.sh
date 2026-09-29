@@ -67,7 +67,13 @@ pin_workspaces "$HEADLESS"
 move_workspaces "$PHYSICAL_MONITOR" "$HEADLESS"
 focus_monitor "$HEADLESS"
 
+# Absolute input (Moonlight on macOS/iPad, touch on phones) is mapped over the whole
+# layout unless pinned — the cursor would land on the physical monitor.
+bind_input_devices "$HEADLESS"
+
 # --- 6. turn off the physical monitor ---------------------------------------
+# ...and keep remote mouse/keyboard input from waking it up again.
+suspend_dpms_wake
 set_dpms off "$PHYSICAL_MONITOR"
 
 touch "$STREAMING_FLAG"
