@@ -69,19 +69,32 @@ pin_workspaces() { # monitor [default]
     done
 }
 
-move_workspaces() { # from-monitor to-monitor
-    local id
-    for id in $(hyprctl workspaces -j | python3 -c "
+workspaces_on() { # monitor -> ids of user workspaces on it (excluding the remote one)
+    hyprctl workspaces -j | python3 -c "
 import sys, json
 for w in json.load(sys.stdin):
     if w['monitor'] == sys.argv[1] and 0 < w['id'] and w['id'] != int(sys.argv[2]):
-        print(w['id'])" "$1" "$REMOTE_WORKSPACE"); do
-        if [ $HYPR_LUA = 1 ]; then
-            hyprctl dispatch "hl.dsp.workspace.move({ workspace=\"$id\", monitor=\"$2\" })" >/dev/null
-        else
-            hyprctl dispatch moveworkspacetomonitor "$id" "$2" >/dev/null
-        fi
+        print(w['id'])" "$1" "$REMOTE_WORKSPACE"
+}
+
+# Moves are acknowledged with "ok" but silently dropped while the target monitor is
+# still waking up from DPMS, so verify and retry a few times.
+move_workspaces() { # from-monitor to-monitor
+    local id try left
+    for try in 1 2 3 4 5; do
+        left=$(workspaces_on "$1")
+        [ -z "$left" ] && return 0
+        for id in $left; do
+            if [ $HYPR_LUA = 1 ]; then
+                hyprctl dispatch "hl.dsp.workspace.move({ workspace=\"$id\", monitor=\"$2\" })" >/dev/null
+            else
+                hyprctl dispatch moveworkspacetomonitor "$id" "$2" >/dev/null
+            fi
+        done
+        sleep 0.4
     done
+    left=$(workspaces_on "$1")
+    [ -n "$left" ] && log "WARNING: workspaces still on $1 after retries: $(echo $left)"
 }
 
 set_dpms() { # on|off monitor
