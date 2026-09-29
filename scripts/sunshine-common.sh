@@ -11,7 +11,8 @@ HEADLESS_DEFAULT_MODE="1920x1080@60"
 HEADLESS_POSITION="9999x0"     # far away so the mouse can't wander onto it
 HEADLESS_SCALE="auto"          # auto = 1.5 for >=2160p, 1.25 for >=1440p, else 1
 MATCH_CLIENT_RESOLUTION=true   # resize HEADLESS to the client's width/height/fps on connect
-REMOTE_WORKSPACE=11            # workspace that lives on HEADLESS between sessions
+REMOTE_WORKSPACE=11            # workspace HEADLESS shows when a session starts
+DISABLE_WHEN_IDLE=true         # disable HEADLESS between sessions so apps never see (or land on) it
 SUNSHINE_UNIT=""               # systemd --user unit to (re)start instead of exec'ing sunshine
 STREAMING_FLAG="$HOME/.cache/sunshine-streaming"  # exists while a client is connected
 # Sunshine's virtual absolute-input devices (see `hyprctl devices`). Hyprland maps absolute
@@ -150,6 +151,19 @@ restore_dpms_wake() {
     rm -f "$STATE_FILE"
 }
 
+# Disables HEADLESS between sessions. It keeps its name, and Sunshine re-lists the
+# outputs on every session start, so connect.sh just re-enables it in time.
+idle_headless() { # name
+    if [ "$DISABLE_WHEN_IDLE" != true ]; then
+        set_monitor "$1" "$HEADLESS_DEFAULT_MODE" "$HEADLESS_POSITION" 1
+    elif [ $HYPR_LUA = 1 ]; then
+        log "WARNING: disabling HEADLESS not implemented for the Lua config provider"
+        set_monitor "$1" "$HEADLESS_DEFAULT_MODE" "$HEADLESS_POSITION" 1
+    else
+        hyprctl keyword monitor "$1,disable" >> "$LOG" 2>&1
+    fi
+}
+
 scale_for_height() {
     if [ "$HEADLESS_SCALE" != "auto" ]; then
         echo "$HEADLESS_SCALE"
@@ -171,7 +185,7 @@ create_headless() {
     [ -z "$name" ] && return 1
     set_monitor "$name" "$HEADLESS_DEFAULT_MODE" "$HEADLESS_POSITION" 1
     sleep 0.3
-    workspace_rule "$REMOTE_WORKSPACE" "$name" true true
+    workspace_rule "$REMOTE_WORKSPACE" "$name" true false
     sed -i "s/^output_name *=.*/output_name = $name/" "$CONF"
     grep -q '^output_name' "$CONF" || echo "output_name = $name" >> "$CONF"
     echo "$name"

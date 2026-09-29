@@ -5,7 +5,7 @@
 #   1. Resume hypridle (paused in sunshine-connect.sh).
 #   2. Turn the physical monitor back on (DPMS on).
 #   3. Migrate workspaces from HEADLESS back to the physical monitor.
-#   4. Reset HEADLESS to its default mode so it idles cheaply.
+#   4. Disable HEADLESS (or reset it to its default mode) until the next session.
 #
 # The HEADLESS monitor itself is NOT removed — it persists for the whole
 # session so Sunshine's cached output_name stays valid for the next connect.
@@ -29,8 +29,8 @@ pin_workspaces "$PHYSICAL_MONITOR"
 
 if [ -n "$HEADLESS" ]; then
     move_workspaces "$HEADLESS" "$PHYSICAL_MONITOR"
-    # --- 4. back to the default mode ----------------------------------------
-    set_monitor "$HEADLESS" "$HEADLESS_DEFAULT_MODE" "$HEADLESS_POSITION" 1
+    # --- 4. hide HEADLESS until the next session ------------------------------
+    idle_headless "$HEADLESS"
 fi
 
 focus_monitor "$PHYSICAL_MONITOR"

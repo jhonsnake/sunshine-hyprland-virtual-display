@@ -197,6 +197,8 @@ All scripts source `~/.local/bin/sunshine-common.sh`, which reads optional overr
 
 Resizing keeps the monitor's name, so Sunshine's cached `output_name` stays valid — no restart needed between clients with different resolutions.
 
+With `DISABLE_WHEN_IDLE=true` (default) HEADLESS is **disabled between sessions**: apps, games and new windows only see your physical monitor, so nothing can end up on an invisible screen. A disabled monitor keeps its name and Sunshine lists the outputs again on every session start (right after the `do` command), so `sunshine-connect.sh` simply re-enables it first.
+
 ## Workspace layout
 
 `sunshine-start.sh` pins:

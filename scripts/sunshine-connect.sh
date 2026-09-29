@@ -42,6 +42,11 @@ if [ -z "$HEADLESS" ]; then
     exit 0
 fi
 
+# (Re-)enable HEADLESS — it's disabled between sessions — at the default mode;
+# step 4 switches it to the client's mode right after.
+set_monitor "$HEADLESS" "$HEADLESS_DEFAULT_MODE" "$HEADLESS_POSITION" 1
+sleep 0.3
+
 # Defensive dpms-on for HEADLESS — covers post-S3 resume where the virtual
 # output came back in dpms-off state.
 set_dpms on "$HEADLESS"

@@ -15,7 +15,7 @@ HEADLESS=$(headless_name)
 # shellcheck source=/dev/null
 [ -f "$STATE_FILE" ] && . "$STATE_FILE"
 
-workspace_rule "$REMOTE_WORKSPACE" "$HEADLESS" true true
+workspace_rule "$REMOTE_WORKSPACE" "$HEADLESS" true false
 
 if [ -e "$STREAMING_FLAG" ]; then
     set_monitor "$HEADLESS" "${CLIENT_MODE:-$HEADLESS_DEFAULT_MODE}" "$HEADLESS_POSITION" "${CLIENT_SCALE:-1}"
@@ -25,7 +25,7 @@ if [ -e "$STREAMING_FLAG" ]; then
     set_option misc:key_press_enables_dpms false
     log "reload: re-applied streaming setup on $HEADLESS (${CLIENT_MODE:-default mode})"
 else
-    set_monitor "$HEADLESS" "$HEADLESS_DEFAULT_MODE" "$HEADLESS_POSITION" 1
     pin_workspaces "$PHYSICAL_MONITOR" true
+    idle_headless "$HEADLESS"
     log "reload: re-applied idle setup on $HEADLESS"
 fi

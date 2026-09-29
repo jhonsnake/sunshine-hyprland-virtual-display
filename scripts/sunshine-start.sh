@@ -32,4 +32,7 @@ log "Headless created: $HEADLESS (physical: $PHYSICAL_MONITOR)"
 # --- Pin workspaces so local windows stay on the physical monitor -----------
 pin_workspaces "$PHYSICAL_MONITOR" true
 
+# --- Nobody is connected yet: hide HEADLESS until a client shows up ---------
+idle_headless "$HEADLESS"
+
 launch_sunshine exec
